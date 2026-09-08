@@ -48,11 +48,10 @@ jobs:
             *) echo "::error::metricsd — contains instructions RLX5281 does not implement"; exit 1 ;;
           esac
 
+      # Runs inside the container: build/ belongs to root here, so a host-side
+      # redirect into it fails with EACCES on Linux runners.
       - name: Checksums
-        run: |
-          cd build
-          sha256sum metricsd > SHA256SUMS
-          cat SHA256SUMS
+        run: make sums
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
