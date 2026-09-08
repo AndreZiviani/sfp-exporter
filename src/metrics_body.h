@@ -17,7 +17,6 @@
 #include "syscall.h"
 
 #define DIAG_PATH "/bin/diag"
-#define DIAG_OUT  "/var/exp/diag.out"
 
 /*
  * Values are emitted as the literal text diag printed. No parsing to a number
@@ -127,14 +126,11 @@ static void diag_metric(int fd, const char *name, const char *help,
 	char buf[512];
 	unsigned long start = 0, len = 0;
 
-	/* Bail on a failed fork rather than falling through to read_file: the
-	 * output file still holds the PREVIOUS command's text, which would be
-	 * emitted as this metric's value. The child truncates it with O_TRUNC
-	 * before exec, so every other failure path leaves it empty and safe. */
-	if (run_to_file(DIAG_PATH, argv, DIAG_OUT) < 0)
-		return;
-
-	if (read_file(DIAG_OUT, buf, sizeof(buf)) <= 0)
+	/* Bail on a failed run rather than emitting whatever is in buf: on this
+	 * path it would be the PREVIOUS command's text, published as this
+	 * metric's value. run_to_buf NUL-terminates whatever it did read, so a
+	 * partial read degrades to a parse failure rather than a wrong number. */
+	if (run_to_buf(DIAG_PATH, argv, buf, sizeof(buf)) <= 0)
 		return;
 	if (!scan(buf, &start, &len))
 		return;
@@ -378,11 +374,8 @@ static void metric_alarms(int fd)
 	unsigned long i = 0;
 	int have_header = 0;
 
-	if (run_to_file(DIAG_PATH, argv, DIAG_OUT) < 0)
+	if (run_to_buf(DIAG_PATH, argv, buf, sizeof(buf)) <= 0)
 		return;
-	if (read_file(DIAG_OUT, buf, sizeof(buf)) <= 0)
-		return;
-
 	while (buf[i]) {
 		unsigned long name, end, st, n;
 		int clear;
@@ -455,11 +448,8 @@ static void metric_counters(int fd, const char *name, const char *help,
 	unsigned long i = 0;
 	int have_header = 0;
 
-	if (run_to_file(DIAG_PATH, argv, DIAG_OUT) < 0)
+	if (run_to_buf(DIAG_PATH, argv, buf, sizeof(buf)) <= 0)
 		return;
-	if (read_file(DIAG_OUT, buf, sizeof(buf)) <= 0)
-		return;
-
 	while (buf[i]) {
 		unsigned long ls = i, le = i, col, v, vstart, tail, a, b, n;
 

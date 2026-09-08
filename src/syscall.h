@@ -18,6 +18,12 @@
 #define __NR_waitpid    4007
 #define __NR_execve     4011
 #define __NR_dup2       4063
+/* pipe2, not pipe. On MIPS the raw pipe(2) returns the second descriptor in
+ * $v1 rather than writing both through the pointer, and this syscall layer
+ * only ever returns $v0. pipe2 uses the ordinary pointer form on every
+ * architecture. It needs Linux 2.6.27; the stick runs 2.6.30.9, and the number
+ * below is from Realtek's own asm/unistd.h for this kernel (4000 + 328). */
+#define __NR_pipe2      4328
 #define __NR_socket     4183
 #define __NR_bind       4169
 #define __NR_listen     4174
@@ -165,30 +171,66 @@ __attribute__((unused)) static void put_u32_fd(int fd, unsigned long v)
  * child setup to open/dup2/execve.
  */
 __attribute__((unused))
-static long run_to_file(const char *path, char *const argv[], const char *out)
+/*
+ * Run a command and capture its output.
+ *
+ * A pipe, not a temporary file. The file version needed a writable directory,
+ * and the one it used (/var/exp) was created by the dev-time helper script but
+ * by nothing in the firmware image — so on a flashed stick every diag-derived
+ * metric silently vanished while the /proc ones kept working. A pipe removes
+ * the dependency: nothing to create, nothing left behind, and no fixed path
+ * for two instances to collide on.
+ */
+static long run_to_buf(const char *path, char *const argv[],
+		       char *buf, unsigned long cap)
 {
-	long pid = syscall3(__NR_fork, 0, 0, 0);
+	int fds[2];
+	long pid;
 	long status = 0;
+	unsigned long got = 0;
 
-	if (pid < 0)
-		return pid;
+	if (syscall3(__NR_pipe2, (long)fds, 0, 0) < 0)
+		return -1;
+
+	pid = syscall3(__NR_fork, 0, 0, 0);
+	if (pid < 0) {
+		syscall3(__NR_close, fds[0], 0, 0);
+		syscall3(__NR_close, fds[1], 0, 0);
+		return -1;
+	}
 
 	if (pid == 0) {
-		long fd = syscall3(__NR_open, (long)out,
-				   O_WRONLY | O_CREAT | O_TRUNC, 0644);
-
-		if (fd >= 0) {
-			syscall3(__NR_dup2, fd, 1, 0);
-			syscall3(__NR_dup2, fd, 2, 0);
-			if (fd > 2)
-				syscall3(__NR_close, fd, 0, 0);
-		}
+		syscall3(__NR_close, fds[0], 0, 0);
+		syscall3(__NR_dup2, fds[1], 1, 0);	/* stdout */
+		syscall3(__NR_dup2, fds[1], 2, 0);	/* stderr, same place */
+		if (fds[1] > 2)
+			syscall3(__NR_close, fds[1], 0, 0);
 		syscall3(__NR_execve, (long)path, (long)argv, 0);
 		syscall3(__NR_exit, 127, 0, 0);	/* exec failed */
 	}
 
+	/* The parent's copy of the write end must go, or the read below never
+	 * sees EOF: the pipe stays open as long as any descriptor to it does. */
+	syscall3(__NR_close, fds[1], 0, 0);
+
+	/* Drain BEFORE waiting. The other order deadlocks the moment a child
+	 * outgrows the pipe buffer: it blocks in write() while we block in
+	 * waitpid(). diag's output is a few hundred bytes against 64 KB, so it
+	 * would not bite today — which is exactly how it would survive to bite
+	 * someone later. */
+	while (got + 1 < cap) {
+		long n = syscall3(__NR_read, fds[0], (long)(buf + got),
+				  cap - got - 1);
+
+		if (n <= 0)
+			break;
+		got += (unsigned long)n;
+	}
+	buf[got] = 0;
+
+	syscall3(__NR_close, fds[0], 0, 0);
 	syscall3(__NR_waitpid, pid, (long)&status, 0);
-	return status;
+	return (long)got;
 }
 
 #endif /* ODI_SYSCALL_H */
