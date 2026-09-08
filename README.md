@@ -314,6 +314,13 @@ Makefile              every target above; re-enters itself with IN_CONTAINER=1
 
 A few decisions that are not obvious from the code.
 
+**`diag` output is captured through a pipe, not a temp file.** The file version
+needed a writable directory, and on a flashed image nothing created it, so every
+optical metric silently vanished while the `/proc` ones kept working. Note
+`pipe2` rather than `pipe`: on MIPS the raw `pipe(2)` returns the second
+descriptor in `$v1` instead of through the pointer. The parent drains before
+`waitpid` — the other order deadlocks once a child outgrows the pipe buffer.
+
 **Values are emitted as the literal text `diag` printed**, never parsed to a
 number and back. That avoids float formatting — which would pull in a libc, and
 soft-float behind it — and cannot introduce a rounding difference between what
