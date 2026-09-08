@@ -1,6 +1,7 @@
 # sfp-exporter
 
 [![build](https://github.com/AndreZiviani/sfp-exporter/actions/workflows/release.yml/badge.svg)](https://github.com/AndreZiviani/sfp-exporter/actions/workflows/release.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A Prometheus exporter that runs **on** an RTL9601-based GPON SFP ONU stick,
 rather than scraping one from outside.
@@ -335,6 +336,21 @@ reference faults), and `-msoft-float` (RLX cores have no FPU).
 silent when wrong: `SOCK_STREAM` is 2 and `SOCK_DGRAM` is 1 (swapped),
 `SOL_SOCKET` is 65535, and `O_CREAT` is 0x100. The CPU is big-endian, so host
 order already is network order — there is no `htons` anywhere.
+
+## Licence
+
+[MIT](LICENSE).
+
+One piece is not original: the inline-asm formulation of `syscall3` in
+`src/syscall.h` — loading `$v0` inside the asm block, and the clobber list —
+follows [musl](https://musl.libc.org/)'s MIPS `syscall_arch.h`. musl is MIT
+licensed, so the terms match; it is called out here and in the source rather
+than absorbed silently. Nothing else derives from another project, and nothing
+derives from vendor firmware or from any GPL source.
+
+This covers the exporter only. The **firmware images** it can be installed into
+are proprietary ODI/Realtek binaries that no licence here reaches — build your
+own from a stock image you already have, rather than redistributing one.
 
 ## Acknowledgements
 
