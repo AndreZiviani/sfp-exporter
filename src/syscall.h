@@ -46,9 +46,10 @@
 extern long __syscall6(long n, long a, long b, long c, long d, long e, long f);
 
 /*
- * Lifted from musl's MIPS syscall_arch.h: loading $v0 inside the asm (rather
- * than trusting a register-asm variable to survive until the syscall) and this
- * exact clobber list are both load-bearing.
+ * Lifted from musl's MIPS syscall_arch.h (MIT licensed, as is this file):
+ * loading $v0 inside the asm — rather than trusting a register-asm variable to
+ * survive until the syscall — and this exact clobber list are both
+ * load-bearing.
  */
 #define SYSCALL_CLOBBERS \
 	"$1", "$3", "$8", "$9", "$10", "$11", "$12", "$13", \
