@@ -52,7 +52,7 @@ else
 
 RUN   := docker run --rm -v "$(CURDIR)":/src -w /src $(IMAGE)
 
-.PHONY: all httpd image verify isa run deploy shell clean release
+.PHONY: all httpd image verify isa run deploy shell clean release sums
 
 # What you almost always want: the exporter, checked.
 all: httpd verify isa
@@ -94,7 +94,14 @@ release: image
 	$(RUN) make IN_CONTAINER=1 $(BUILD)/metricsd
 	$(RUN) scripts/verify.sh $(BUILD)/metricsd
 	$(RUN) scripts/isa-audit.sh $(BUILD)/metricsd
-	@cd $(BUILD) && sha256sum metricsd > SHA256SUMS && cat SHA256SUMS
+	$(MAKE) sums
+
+# Written inside the container, not on the host. build/ is created by the
+# container as root, so on Linux — every CI runner — the host user cannot write
+# into it. On macOS Docker maps ownership and hides the problem, which is
+# exactly how this reached CI.
+sums: image
+	$(RUN) sh -c 'cd $(BUILD) && sha256sum metricsd > SHA256SUMS && cat SHA256SUMS'
 
 shell: image
 	docker run --rm -it -v "$(CURDIR)":/src -w /src $(IMAGE) bash
