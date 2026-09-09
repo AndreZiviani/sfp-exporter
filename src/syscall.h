@@ -97,6 +97,27 @@ static long syscall3(long n, long a, long b, long c)
  *
  * sigsetsize is _NSIG/8 = 16 on this target.
  */
+/*
+ * Close every descriptor above stderr in a freshly forked child.
+ *
+ * A child otherwise inherits whatever the parent had open. In the sibling confd
+ * daemon that meant a forked helper held the accepted client socket, so a
+ * request hung until the client timed out — and worse, a long-lived grandchild
+ * kept the LISTENING socket alive after the server died, so its replacement
+ * could not bind. Here the diag children exit in milliseconds so it has never
+ * bitten, which is exactly why it is worth closing before it does.
+ *
+ * 3..63 rather than a real enumeration: there is no closefrom() and no /proc
+ * walk worth doing inside a fork, and nothing here opens that many.
+ */
+__attribute__((unused)) static void close_inherited(void)
+{
+	long fd;
+
+	for (fd = 3; fd < 64; fd++)
+		syscall3(__NR_close, fd, 0, 0);
+}
+
 __attribute__((unused)) static long sig_ignore(long signum)
 {
 	long act[6];
@@ -237,6 +258,7 @@ static long run_to_buf(const char *path, char *const argv[],
 		syscall3(__NR_dup2, fds[1], 2, 0);	/* stderr, same place */
 		if (fds[1] > 2)
 			syscall3(__NR_close, fds[1], 0, 0);
+		close_inherited();
 		syscall3(__NR_execve, (long)path, (long)argv, 0);
 		syscall3(__NR_exit, 127, 0, 0);	/* exec failed */
 	}
@@ -318,6 +340,7 @@ static long run_script_to_buf(const char *path, char *const argv[],
 			syscall3(__NR_close, in[0], 0, 0);
 		if (out[1] > 2)
 			syscall3(__NR_close, out[1], 0, 0);
+		close_inherited();
 		syscall3(__NR_execve, (long)path, (long)argv, 0);
 		syscall3(__NR_exit, 127, 0, 0);		/* exec failed */
 	}
