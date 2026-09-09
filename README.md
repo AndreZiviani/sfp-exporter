@@ -65,6 +65,32 @@ From `/bin/diag`, one fork each:
 | `gpon_voltage_volts` | `diag pon get transceiver voltage` |
 | `gpon_onu_state` | `diag gpon get onu-state` — the N in O(N); 5 is operational |
 | `gpon_alarm{alarm="..."}` | `diag gpon get alarm-status` — `los`, `lof`, `lom`, `sf`, `sd`, `tx_too_long`, `tx_mismatch`; 1 means asserted |
+| `gpon_port_{receive,transmit}_octets_total{port="..."}` | `diag mib dump counter port all` |
+| `gpon_port_{receive,transmit}_packets_total{port,kind="unicast\|multicast\|broadcast"}` | same |
+| `gpon_port_{receive,transmit}_drops_total{port}` | same |
+| `gpon_port_receive_errors_total{port,kind="crc_align\|fragment\|jabber\|undersize\|oversize"}` | same |
+| `gpon_port_pause_frames_total{port,direction="receive\|transmit"}` | same |
+
+**`port="2"` is the PON side and `port="0"` the host SerDes side.** These are
+the only counters that show whether the stick is actually *forwarding*, so they
+are the ones to alert on. Established by correlating deltas over one window on
+each of two lines independently, rather than assumed from the port numbers: on
+Claro, `p2` received 13220591 octets while `p0` transmitted 13203165, and `p0`
+received 12626164 while `p2` transmitted 12653844; on Vero, 9204264 / 9184671
+and 880819 / 898523. The mirror is the switch forwarding between the two.
+
+These are the same counters the vendor web UI shows (boa's `ponGetStatus`,
+which prints them with `%llu`). Reading is **non-destructive** —
+`diag mib get count-mode` reports `normal free run`, resetting is a separate
+explicit `diag mib reset counter ...` — so a scrape takes nothing away from the
+web UI or from a manual `diag`, and they are wider than 32 bits (an observed
+`ifInOctets` of 5057428519 is past 2^32). Both properties are why these can be
+exported as real `counter`s, verbatim, with no accumulation in the exporter.
+
+The device prints 46 counters per port. Only those with an unambiguous unit are
+exported; the rest are packet-size histograms and half-duplex collision
+counters that mean nothing on a SerDes or a PON. Run the command by hand to see
+them all.
 
 From `/proc`, which costs no fork at all:
 
@@ -93,8 +119,11 @@ absent series is honest; `0` reads as a genuine measurement of zero dBm.
   busy link. At 100 Mbps sustained a wrap happens roughly every six minutes.
 - **`gpon_memory_bytes` would overflow above 4 GB.** These devices have tens of
   megabytes, so this is theoretical.
-- **`pon0` reports zeros** on every field. Traffic is accounted on `eth0` and
-  `br0`.
+- **`pon0` reports zeros** on every field, and `eth0`/`br0` only ever show the
+  stick's **own management traffic** — forwarding happens in switch hardware and
+  never reaches the CPU. Over one 25 s window `eth0` moved 2390/11134 bytes
+  while the switch ports moved ~13 MB each way. So `/proc/net/dev` cannot tell
+  you whether the link is carrying service; use `gpon_port_*` for that.
 
 ### Deliberately not exported
 
@@ -104,9 +133,12 @@ Two problems, the second worse — they are not monotonic, so `counter` is the
 wrong type; and reading is destructive, so a scrape silently consumes the delta
 from anything else reading those registers, including the vendor web UI.
 
-Making them usable means accumulating deltas into a running total held in the
-exporter process, which is only sound if it is the sole reader. The parser is
-still in `src/metrics_body.h`, unused.
+Making them usable would mean accumulating deltas into a running total held in
+the exporter process, which is only sound if it is the sole reader. The parser
+is still in `src/metrics_body.h`, unused — and now unnecessary: the
+`diag mib dump counter` block above carries the same traffic volume in both
+directions, free-running, 64-bit and non-destructive. That is what the web UI
+was reading all along.
 
 OMCI (`omcicli`) is not used either. Its ANI-G optical values duplicate `diag`
 at 0.002 dB granularity instead of six decimals, and the FEC performance
