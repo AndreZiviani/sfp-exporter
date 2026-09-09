@@ -504,6 +504,200 @@ next:
 	}
 }
 
+/*
+ * `diag mib dump counter port all` — the switch/PON MAC MIB counters.
+ *
+ * This is the block the vendor web UI reads (boa's ponGetStatus, which prints
+ * them with %llu), and it is a DIFFERENT counter block from
+ * `gpon show counter global ...` further down this file. The difference is the
+ * whole reason these can be exported and those cannot:
+ *
+ *   - Free-running, not read-and-clear. `diag mib get count-mode` reports
+ *     "normal free run", and two reads six seconds apart gave 165417214 then
+ *     172149239 on port 0 — it grew, it did not reset. Reading is therefore
+ *     non-destructive, so a scrape does not steal counts from the web UI or
+ *     from a manual diag. Resetting is a separate explicit command
+ *     (`diag mib reset counter port ...`), which nothing here ever runs.
+ *   - Wider than 32 bits: port 2 read ifInOctets 4881693552, past 2^32. So
+ *     there is no wrap to work around and no constraint on scrape interval.
+ *
+ * Both properties together mean these are real Prometheus counters and go out
+ * as-is, with no in-process accumulation.
+ *
+ * Ports, established by correlating deltas over one 25 s window: port 2 is the
+ * PON side and port 0 the host SerDes side. Their deltas mirror each other —
+ * p2-in 13220591 against p0-out 13203165, p0-in 12626164 against p2-out
+ * 12653844 — which is the switch forwarding between the two.
+ *
+ * This is also why /proc/net/dev is no substitute and pon0 there reads zero:
+ * forwarding happens in switch hardware and never reaches the CPU, so eth0's
+ * counters only ever show the stick's own management traffic.
+ *
+ * Only the counters with an unambiguous unit are exported. The device prints 46
+ * per port, the rest being packet-size histograms and half-duplex collision
+ * counters that mean nothing on a SerDes or a PON; run the command by hand to
+ * see those. Emitting them here would put octets and packets in one family.
+ */
+struct mib_key {
+	const char *key;	/* the label diag prints, matched exactly */
+	const char *labels;	/* extra label text, or "" */
+};
+
+struct mib_fam {
+	const char *metric;
+	const char *help;
+	const struct mib_key *keys;	/* terminated by a NULL key */
+};
+
+static const struct mib_key mib_rx_octets[] = {
+	{ "ifInOctets", "" }, { 0, 0 }
+};
+static const struct mib_key mib_tx_octets[] = {
+	{ "ifOutOctets", "" }, { 0, 0 }
+};
+static const struct mib_key mib_rx_pkts[] = {
+	{ "ifInUcastPkts",     ",kind=\"unicast\""   },
+	{ "ifInMulticastPkts", ",kind=\"multicast\"" },
+	{ "ifInBroadcastPkts", ",kind=\"broadcast\"" },
+	{ 0, 0 }
+};
+static const struct mib_key mib_tx_pkts[] = {
+	{ "ifOutUcastPkts",     ",kind=\"unicast\""   },
+	{ "ifOutMulticastPkts", ",kind=\"multicast\"" },
+	{ "ifOutBroadcastPkts", ",kind=\"broadcast\"" },
+	{ 0, 0 }
+};
+static const struct mib_key mib_rx_drops[] = {
+	{ "dot1dTpPortInDiscards", "" }, { 0, 0 }
+};
+static const struct mib_key mib_tx_drops[] = {
+	{ "ifOutDiscards", "" }, { 0, 0 }
+};
+static const struct mib_key mib_rx_errors[] = {
+	{ "etherStatsCRCAlignErrors", ",kind=\"crc_align\"" },
+	{ "etherStatsFragments",      ",kind=\"fragment\""  },
+	{ "etherStatsJabbers",        ",kind=\"jabber\""    },
+	{ "etherStatsRxUndersizePkts", ",kind=\"undersize\"" },
+	{ "etherStatsRxOversizePkts",  ",kind=\"oversize\""  },
+	{ 0, 0 }
+};
+static const struct mib_key mib_pause[] = {
+	{ "dot3InPauseFrames",  ",direction=\"receive\""  },
+	{ "dot3OutPauseFrames", ",direction=\"transmit\"" },
+	{ 0, 0 }
+};
+
+static const struct mib_fam mib_fams[] = {
+	{ "gpon_port_receive_octets_total",
+	  "Octets received on a switch port. port=\"2\" is the PON side, \"0\" the host SerDes side.",
+	  mib_rx_octets },
+	{ "gpon_port_transmit_octets_total",
+	  "Octets transmitted on a switch port.", mib_tx_octets },
+	{ "gpon_port_receive_packets_total",
+	  "Packets received on a switch port, by destination kind.", mib_rx_pkts },
+	{ "gpon_port_transmit_packets_total",
+	  "Packets transmitted on a switch port, by destination kind.", mib_tx_pkts },
+	{ "gpon_port_receive_drops_total",
+	  "Received frames dropped by the bridge on a switch port.", mib_rx_drops },
+	{ "gpon_port_transmit_drops_total",
+	  "Frames dropped instead of being transmitted on a switch port.", mib_tx_drops },
+	{ "gpon_port_receive_errors_total",
+	  "Malformed frames received on a switch port, by error kind.", mib_rx_errors },
+	{ "gpon_port_pause_frames_total",
+	  "802.3x pause frames seen on a switch port.", mib_pause },
+	{ 0, 0, 0 }
+};
+
+/*
+ * Emit every sample for one key, walking the whole buffer and tracking which
+ * "Port: N" block each line falls in. Driven per key rather than per line so
+ * each family's "# HELP"/"# TYPE" is written exactly once — the device prints
+ * one complete block per port, so a line-ordered walk would repeat the header
+ * for every port and Prometheus rejects a duplicated header.
+ */
+static void mib_emit_key(int fd, const char *buf, const char *metric,
+			 const struct mib_key *mk)
+{
+	char port[8];
+	unsigned long i = 0, plen = 0;
+
+	while (buf[i]) {
+		unsigned long ls = i, le = i, k, vs;
+
+		while (buf[le] && buf[le] != '\n')
+			le++;
+
+		k = line_key(buf, ls, "Port:");
+		if (k) {
+			while (k < le && buf[k] == ' ')
+				k++;
+			plen = 0;
+			while (k < le && buf[k] >= '0' && buf[k] <= '9' &&
+			       plen + 1 < sizeof(port))
+				port[plen++] = buf[k++];
+			goto next;
+		}
+
+		if (!plen)
+			goto next;	/* a counter before any "Port:" line */
+
+		k = line_key(buf, ls, mk->key);
+		if (!k)
+			goto next;
+		/* The label has to END here: only spaces, then the colon.
+		 * Without this a key would also match any longer label it
+		 * happens to be a prefix of. */
+		while (k < le && buf[k] == ' ')
+			k++;
+		if (k >= le || buf[k] != ':')
+			goto next;
+
+		k++;
+		while (k < le && buf[k] == ' ')
+			k++;
+		vs = k;
+		while (k < le && buf[k] >= '0' && buf[k] <= '9')
+			k++;
+		if (k == vs)
+			goto next;	/* no number: not a counter line */
+
+		put_fd(fd, metric);
+		put_fd(fd, "{port=\"");
+		write_all(fd, port, plen);
+		put_fd(fd, "\"");
+		put_fd(fd, mk->labels);
+		put_fd(fd, "} ");
+		write_all(fd, buf + vs, k - vs);
+		put_fd(fd, "\n");
+
+next:
+		i = (buf[le] == '\n') ? le + 1 : le;
+	}
+}
+
+static void metric_port_mib(int fd)
+{
+	static char *const argv[] = {
+		"diag", "mib", "dump", "counter", "port", "all", 0
+	};
+	/* The device prints 5856 bytes for two ports, so this is a little over
+	 * 2x headroom. run_to_buf truncates rather than failing, and a truncated
+	 * read costs the tail series — port 2, the PON side, is printed last —
+	 * so the headroom matters more than it looks. */
+	char buf[12288];
+	unsigned long f, k;
+
+	if (run_to_buf(DIAG_PATH, argv, buf, sizeof(buf)) <= 0)
+		return;
+
+	for (f = 0; mib_fams[f].metric; f++) {
+		emit_header(fd, mib_fams[f].metric, mib_fams[f].help, "counter");
+		for (k = 0; mib_fams[f].keys[k].key; k++)
+			mib_emit_key(fd, buf, mib_fams[f].metric,
+				     &mib_fams[f].keys[k]);
+	}
+}
+
 static void emit_metrics(int fd)
 {
 	/* Every metric name in this file lives here and nowhere else; rename in
@@ -538,6 +732,7 @@ static void emit_metrics(int fd)
 		    "ONU state number, the N in O(N). 5 is operational.", onu, scan_onu_state);
 
 	metric_alarms(fd);
+	metric_port_mib(fd);
 
 	/*
 	 * NOT exporting `gpon show counter global ds-eth`. Four consecutive reads
