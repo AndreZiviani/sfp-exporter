@@ -233,4 +233,99 @@ static long run_to_buf(const char *path, char *const argv[],
 	return (long)got;
 }
 
+/*
+ * Run one program and feed it a script on stdin, collecting stdout+stderr.
+ *
+ * This exists because /bin/diag costs ~32 ms per invocation on this CPU almost
+ * entirely in its own startup — it links librtk, libmib and libomci_api, and
+ * relocating those dwarfs the work. Measured over 20 iterations: 32.5 ms for a
+ * single transceiver read, 35.5 ms for `mib dump counter port all`, which emits
+ * 5.9 KB and 92 counters. Against 4.0 ms for a bare fork+exec of /bin/true.
+ *
+ * diag also reads commands from stdin and echoes each one back after its
+ * "RTK.0> " prompt, so a whole scrape fits in one invocation: 47.5 ms for eight
+ * commands in one fork, against 259.5 ms for the same eight separately. That is
+ * 5.5x, and it makes an extra metric cost its own work (1-3 ms) instead of
+ * another process startup.
+ */
+static long run_script_to_buf(const char *path, char *const argv[],
+			      const char *script, char *buf, unsigned long cap)
+{
+	int in[2], out[2];
+	long pid;
+	long status = 0;
+	unsigned long got = 0, wrote = 0, slen = 0;
+
+	while (script[slen])
+		slen++;
+
+	if (syscall3(__NR_pipe2, (long)in, 0, 0) < 0)
+		return -1;
+	if (syscall3(__NR_pipe2, (long)out, 0, 0) < 0) {
+		syscall3(__NR_close, in[0], 0, 0);
+		syscall3(__NR_close, in[1], 0, 0);
+		return -1;
+	}
+
+	pid = syscall3(__NR_fork, 0, 0, 0);
+	if (pid < 0) {
+		syscall3(__NR_close, in[0], 0, 0);
+		syscall3(__NR_close, in[1], 0, 0);
+		syscall3(__NR_close, out[0], 0, 0);
+		syscall3(__NR_close, out[1], 0, 0);
+		return -1;
+	}
+
+	if (pid == 0) {
+		syscall3(__NR_close, in[1], 0, 0);
+		syscall3(__NR_close, out[0], 0, 0);
+		syscall3(__NR_dup2, in[0], 0, 0);	/* stdin  */
+		syscall3(__NR_dup2, out[1], 1, 0);	/* stdout */
+		syscall3(__NR_dup2, out[1], 2, 0);	/* stderr, same place */
+		if (in[0] > 2)
+			syscall3(__NR_close, in[0], 0, 0);
+		if (out[1] > 2)
+			syscall3(__NR_close, out[1], 0, 0);
+		syscall3(__NR_execve, (long)path, (long)argv, 0);
+		syscall3(__NR_exit, 127, 0, 0);		/* exec failed */
+	}
+
+	syscall3(__NR_close, in[0], 0, 0);
+	syscall3(__NR_close, out[1], 0, 0);
+
+	/* Write the whole script, THEN close stdin, before reading a byte. Safe
+	 * only because the script is a few hundred bytes against a 64 KB pipe
+	 * buffer, so it cannot block waiting for a reader. The child does not
+	 * start printing until it has read a command anyway, but the ordering is
+	 * what makes that irrelevant: get the input in, signal EOF, then drain.
+	 * Without the close, diag waits for more commands and never exits. */
+	while (wrote < slen) {
+		long n = syscall3(__NR_write, in[1], (long)(script + wrote),
+				  slen - wrote);
+
+		if (n <= 0)
+			break;
+		wrote += (unsigned long)n;
+	}
+	syscall3(__NR_close, in[1], 0, 0);
+
+	/* Drain before waiting, for the same reason run_to_buf does: the other
+	 * order deadlocks as soon as the child outgrows the pipe buffer. Here
+	 * that is a live risk rather than a theoretical one — the mib counter
+	 * dump alone is 5.9 KB. */
+	while (got + 1 < cap) {
+		long n = syscall3(__NR_read, out[0], (long)(buf + got),
+				  cap - got - 1);
+
+		if (n <= 0)
+			break;
+		got += (unsigned long)n;
+	}
+	buf[got] = 0;
+
+	syscall3(__NR_close, out[0], 0, 0);
+	syscall3(__NR_waitpid, pid, (long)&status, 0);
+	return (long)got;
+}
+
 #endif /* ODI_SYSCALL_H */

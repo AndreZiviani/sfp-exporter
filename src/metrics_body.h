@@ -115,30 +115,23 @@ static unsigned long norm_label(char *dst, unsigned long cap,
 }
 
 /*
- * A metric is one diag invocation plus one extractor. On failure nothing is
- * emitted at all — an absent series is honest, whereas a zero would look like a
- * real reading of zero dBm.
+ * A single-valued metric: one extractor applied to one command's section of the
+ * diag output. On a parse failure nothing is emitted at all — an absent series
+ * is honest, whereas a zero would look like a real reading of zero dBm.
  */
-static void diag_metric(int fd, const char *name, const char *help,
-			char *const argv[],
+static void emit_scalar(int fd, const char *name, const char *help,
+			const char *sec,
 			int (*scan)(const char *, unsigned long *, unsigned long *))
 {
-	char buf[512];
 	unsigned long start = 0, len = 0;
 
-	/* Bail on a failed run rather than emitting whatever is in buf: on this
-	 * path it would be the PREVIOUS command's text, published as this
-	 * metric's value. run_to_buf NUL-terminates whatever it did read, so a
-	 * partial read degrades to a parse failure rather than a wrong number. */
-	if (run_to_buf(DIAG_PATH, argv, buf, sizeof(buf)) <= 0)
-		return;
-	if (!scan(buf, &start, &len))
+	if (!scan(sec, &start, &len))
 		return;
 
 	emit_header(fd, name, help, "gauge");
 	put_fd(fd, name);
 	put_fd(fd, " ");
-	write_all(fd, buf + start, len);
+	write_all(fd, sec + start, len);
 	put_fd(fd, "\n");
 }
 
@@ -366,16 +359,12 @@ static void metric_uptime(int fd)
  * names are normalised to lowercase with underscores: "TX Too Long" ->
  * tx_too_long.
  */
-static void metric_alarms(int fd)
+static void metric_alarms(int fd, const char *buf)
 {
-	static char *const argv[] = { "diag", "gpon", "get", "alarm-status", 0 };
-	char buf[1024];
 	char label[64];
 	unsigned long i = 0;
 	int have_header = 0;
 
-	if (run_to_buf(DIAG_PATH, argv, buf, sizeof(buf)) <= 0)
-		return;
 	while (buf[i]) {
 		unsigned long name, end, st, n;
 		int clear;
@@ -675,20 +664,9 @@ next:
 	}
 }
 
-static void metric_port_mib(int fd)
+static void metric_port_mib(int fd, const char *buf)
 {
-	static char *const argv[] = {
-		"diag", "mib", "dump", "counter", "port", "all", 0
-	};
-	/* The device prints 5856 bytes for two ports, so this is a little over
-	 * 2x headroom. run_to_buf truncates rather than failing, and a truncated
-	 * read costs the tail series — port 2, the PON side, is printed last —
-	 * so the headroom matters more than it looks. */
-	char buf[12288];
 	unsigned long f, k;
-
-	if (run_to_buf(DIAG_PATH, argv, buf, sizeof(buf)) <= 0)
-		return;
 
 	for (f = 0; mib_fams[f].metric; f++) {
 		emit_header(fd, mib_fams[f].metric, mib_fams[f].help, "counter");
@@ -698,17 +676,180 @@ static void metric_port_mib(int fd)
 	}
 }
 
+/*
+ * One diag invocation per scrape.
+ *
+ * /bin/diag costs ~32 ms per run on this CPU and almost all of it is startup:
+ * a single transceiver read measured 32.5 ms against 35.5 ms for the 92-counter
+ * mib dump, and 4.0 ms for a bare fork+exec of /bin/true. Paying that eight
+ * times came to 259.5 ms a scrape; the same eight commands piped into one diag
+ * take 47.5 ms. So the cost scales with the number of PROCESSES, not the number
+ * of metrics, and the fix is to stop starting more of them.
+ *
+ * diag reads commands from stdin and echoes each after its "RTK.0> " prompt,
+ * which is what makes the output splittable back into per-command sections.
+ *
+ * The trade: this is now one failure domain. Previously a diag that hung or
+ * crashed cost one metric; now it costs all of them. The /proc metrics are
+ * unaffected and gpon_exporter_up still reports, so a scrape still tells you
+ * the stick is alive.
+ */
+#define DIAG_PROMPT "RTK.0> "
+
+struct diag_sec {
+	const char *cmd;	/* sent to diag, and matched against its echo */
+	const char *metric;	/* single-valued case */
+	const char *help;
+	int (*scan)(const char *, unsigned long *, unsigned long *);
+	void (*custom)(int fd, const char *sec);	/* multi-series case */
+};
+
+/*
+ * Every metric name in this file lives here and nowhere else; rename in one
+ * place if you need to match an existing dashboard. The order is the order the
+ * commands are sent, and therefore the order the series come out.
+ */
+static const struct diag_sec diag_secs[] = {
+	{ "pon get transceiver bias-current", "gpon_bias_current_ma",
+	  "Bias current of the GPON transceiver, in mA.", scan_decimal, 0 },
+	{ "pon get transceiver rx-power", "gpon_rx_power_dbm",
+	  "Rx power of the GPON transceiver, in dBm.", scan_decimal, 0 },
+	{ "pon get transceiver tx-power", "gpon_tx_power_dbm",
+	  "Tx power of the GPON transceiver, in dBm.", scan_decimal, 0 },
+	{ "pon get transceiver temperature", "gpon_temperature_celsius",
+	  "Temperature of the GPON transceiver, in Celsius.", scan_decimal, 0 },
+	{ "pon get transceiver voltage", "gpon_voltage_volts",
+	  "Supply voltage of the GPON transceiver, in Volts.", scan_decimal, 0 },
+	{ "gpon get onu-state", "gpon_onu_state",
+	  "ONU state number, the N in O(N). 5 is operational.", scan_onu_state, 0 },
+	{ "gpon get alarm-status", 0, 0, 0, metric_alarms },
+	{ "mib dump counter port all", 0, 0, 0, metric_port_mib },
+	{ 0, 0, 0, 0, 0 }
+};
+
+/*
+ * Built from the table rather than written out as a literal, so the commands
+ * sent and the echoes matched against cannot drift apart. A mismatch would not
+ * fail loudly — it would silently drop that metric.
+ */
+static unsigned long build_diag_script(char *dst, unsigned long cap)
+{
+	const char *tail = "exit\n";
+	unsigned long n = 0, i, k;
+
+	for (i = 0; diag_secs[i].cmd; i++) {
+		for (k = 0; diag_secs[i].cmd[k]; k++)
+			if (n + 2 < cap)
+				dst[n++] = diag_secs[i].cmd[k];
+		if (n + 2 < cap)
+			dst[n++] = '\n';
+	}
+	/* Closing stdin would end it too, but `exit` lets diag leave on its own
+	 * terms rather than on a read error. */
+	for (k = 0; tail[k]; k++)
+		if (n + 2 < cap)
+			dst[n++] = tail[k];
+
+	dst[n] = 0;
+	return n;
+}
+
+/* Index just past `needle`, or 0 if absent. 0 is unambiguous as "not found"
+ * because a match always lands past the needle's own length. */
+static unsigned long find_after(const char *buf, unsigned long from,
+				const char *needle)
+{
+	unsigned long i, k;
+
+	for (i = from; buf[i]; i++) {
+		for (k = 0; needle[k] && buf[i + k] == needle[k]; k++)
+			;
+		if (!needle[k])
+			return i + k;
+	}
+	return 0;
+}
+
+/* Whether the `alen` bytes at `a` are exactly the string `b`. */
+static int cmd_is(const char *a, unsigned long alen, const char *b)
+{
+	unsigned long k;
+
+	for (k = 0; k < alen; k++)
+		if (!b[k] || a[k] != b[k])
+			return 0;
+	return b[alen] == 0;
+}
+
+static void emit_diag_metrics(int fd)
+{
+	static char *const argv[] = { "diag", 0 };
+	char script[512];
+	/* Two ports of mib counters are 5856 bytes on their own; the whole
+	 * scrape's output measured about 6.9 KB, so this is a bit over 2x
+	 * headroom. A truncated read costs the tail sections rather than
+	 * corrupting anything, but the mib dump is last, so headroom matters
+	 * more than it looks. */
+	char buf[16384];
+	unsigned long cs;
+
+	build_diag_script(script, sizeof(script));
+	if (run_script_to_buf(DIAG_PATH, argv, script, buf, sizeof(buf)) <= 0)
+		return;
+
+	/* cs always points at a command, just past its prompt. find_after
+	 * returns the position AFTER the needle, so the next section's start is
+	 * the previous search's result — searching again from it would step over
+	 * a prompt and drop every other metric. */
+	cs = find_after(buf, 0, DIAG_PROMPT);
+	while (cs) {
+		unsigned long ce, ss, nxt, cut, t;
+		char saved = 0;
+
+		ce = cs;
+		while (buf[ce] && buf[ce] != '\n' && buf[ce] != '\r')
+			ce++;
+		if (!buf[ce])
+			break;		/* the trailing prompt, with no command */
+
+		ss = ce;
+		while (buf[ss] == '\n' || buf[ss] == '\r')
+			ss++;
+
+		nxt = find_after(buf, ss, DIAG_PROMPT);
+
+		/* Terminate this section before handing it over. Every extractor
+		 * takes a NUL-terminated string and stops at its first match, so
+		 * without this a command that printed nothing would be handed the
+		 * NEXT command's output and report it as its own value. The byte
+		 * is restored afterwards because it is part of the marker used to
+		 * find the following section. */
+		cut = nxt ? nxt - (sizeof(DIAG_PROMPT) - 1) : 0;
+		if (cut) {
+			saved = buf[cut];
+			buf[cut] = 0;
+		}
+
+		for (t = 0; diag_secs[t].cmd; t++) {
+			if (!cmd_is(buf + cs, ce - cs, diag_secs[t].cmd))
+				continue;
+			if (diag_secs[t].custom)
+				diag_secs[t].custom(fd, buf + ss);
+			else
+				emit_scalar(fd, diag_secs[t].metric,
+					    diag_secs[t].help, buf + ss,
+					    diag_secs[t].scan);
+			break;
+		}
+
+		if (cut)
+			buf[cut] = saved;
+		cs = nxt;
+	}
+}
+
 static void emit_metrics(int fd)
 {
-	/* Every metric name in this file lives here and nowhere else; rename in
-	 * one place if you need to match an existing dashboard. */
-	static char *const bias[] = { "diag", "pon", "get", "transceiver", "bias-current", 0 };
-	static char *const rx[]   = { "diag", "pon", "get", "transceiver", "rx-power", 0 };
-	static char *const tx[]   = { "diag", "pon", "get", "transceiver", "tx-power", 0 };
-	static char *const temp[] = { "diag", "pon", "get", "transceiver", "temperature", 0 };
-	static char *const volt[] = { "diag", "pon", "get", "transceiver", "voltage", 0 };
-	static char *const onu[]  = { "diag", "gpon", "get", "onu-state", 0 };
-
 	put_fd(fd, "# HELP gpon_exporter_up Always 1. Confirms the exporter ran.\n"
 		   "# TYPE gpon_exporter_up gauge\n"
 		   "gpon_exporter_up 1\n");
@@ -718,21 +859,8 @@ static void emit_metrics(int fd)
 	metric_meminfo(fd);
 	metric_netdev(fd);
 
-	diag_metric(fd, "gpon_bias_current_ma",
-		    "Bias current of the GPON transceiver, in mA.", bias, scan_decimal);
-	diag_metric(fd, "gpon_rx_power_dbm",
-		    "Rx power of the GPON transceiver, in dBm.", rx, scan_decimal);
-	diag_metric(fd, "gpon_tx_power_dbm",
-		    "Tx power of the GPON transceiver, in dBm.", tx, scan_decimal);
-	diag_metric(fd, "gpon_temperature_celsius",
-		    "Temperature of the GPON transceiver, in Celsius.", temp, scan_decimal);
-	diag_metric(fd, "gpon_voltage_volts",
-		    "Supply voltage of the GPON transceiver, in Volts.", volt, scan_decimal);
-	diag_metric(fd, "gpon_onu_state",
-		    "ONU state number, the N in O(N). 5 is operational.", onu, scan_onu_state);
-
-	metric_alarms(fd);
-	metric_port_mib(fd);
+	/* Everything from /bin/diag, in a single fork. */
+	emit_diag_metrics(fd);
 
 	/*
 	 * NOT exporting `gpon show counter global ds-eth`. Four consecutive reads
