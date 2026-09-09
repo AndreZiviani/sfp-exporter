@@ -1,0 +1,170 @@
+# HELP gpon_exporter_up Always 1. Confirms the exporter ran.
+# TYPE gpon_exporter_up gauge
+gpon_exporter_up 1
+# HELP gpon_uptime_seconds Time since the stick booted.
+# TYPE gpon_uptime_seconds gauge
+gpon_uptime_seconds 9775.40
+# HELP gpon_load1 Load average, from /proc/loadavg.
+# TYPE gpon_load1 gauge
+gpon_load1 2.12
+# HELP gpon_load5 Load average, from /proc/loadavg.
+# TYPE gpon_load5 gauge
+gpon_load5 2.05
+# HELP gpon_load15 Load average, from /proc/loadavg.
+# TYPE gpon_load15 gauge
+gpon_load15 2.01
+# HELP gpon_memory_bytes Kernel memory, from /proc/meminfo.
+# TYPE gpon_memory_bytes gauge
+gpon_memory_bytes{kind="total"} 28188672
+gpon_memory_bytes{kind="free"} 1417216
+gpon_memory_bytes{kind="buffers"} 2084864
+gpon_memory_bytes{kind="cached"} 9588736
+# HELP gpon_network_receive_bytes_total Interface counter from /proc/net/dev.
+# TYPE gpon_network_receive_bytes_total counter
+gpon_network_receive_bytes_total{device="lo"} 27533
+gpon_network_receive_bytes_total{device="eth0"} 1069543
+gpon_network_receive_bytes_total{device="eth0.2"} 0
+gpon_network_receive_bytes_total{device="eth0.3"} 0
+gpon_network_receive_bytes_total{device="nas0"} 0
+gpon_network_receive_bytes_total{device="pon0"} 0
+gpon_network_receive_bytes_total{device="br0"} 1069543
+# HELP gpon_network_receive_packets_total Interface counter from /proc/net/dev.
+# TYPE gpon_network_receive_packets_total counter
+gpon_network_receive_packets_total{device="lo"} 350
+gpon_network_receive_packets_total{device="eth0"} 16764
+gpon_network_receive_packets_total{device="eth0.2"} 0
+gpon_network_receive_packets_total{device="eth0.3"} 0
+gpon_network_receive_packets_total{device="nas0"} 0
+gpon_network_receive_packets_total{device="pon0"} 0
+gpon_network_receive_packets_total{device="br0"} 16764
+# HELP gpon_network_receive_errs_total Interface counter from /proc/net/dev.
+# TYPE gpon_network_receive_errs_total counter
+gpon_network_receive_errs_total{device="lo"} 0
+gpon_network_receive_errs_total{device="eth0"} 0
+gpon_network_receive_errs_total{device="eth0.2"} 0
+gpon_network_receive_errs_total{device="eth0.3"} 0
+gpon_network_receive_errs_total{device="nas0"} 0
+gpon_network_receive_errs_total{device="pon0"} 0
+gpon_network_receive_errs_total{device="br0"} 0
+# HELP gpon_network_receive_drop_total Interface counter from /proc/net/dev.
+# TYPE gpon_network_receive_drop_total counter
+gpon_network_receive_drop_total{device="lo"} 0
+gpon_network_receive_drop_total{device="eth0"} 0
+gpon_network_receive_drop_total{device="eth0.2"} 0
+gpon_network_receive_drop_total{device="eth0.3"} 0
+gpon_network_receive_drop_total{device="nas0"} 0
+gpon_network_receive_drop_total{device="pon0"} 0
+gpon_network_receive_drop_total{device="br0"} 0
+# HELP gpon_network_transmit_bytes_total Interface counter from /proc/net/dev.
+# TYPE gpon_network_transmit_bytes_total counter
+gpon_network_transmit_bytes_total{device="lo"} 27533
+gpon_network_transmit_bytes_total{device="eth0"} 10826575
+gpon_network_transmit_bytes_total{device="eth0.2"} 0
+gpon_network_transmit_bytes_total{device="eth0.3"} 0
+gpon_network_transmit_bytes_total{device="nas0"} 0
+gpon_network_transmit_bytes_total{device="pon0"} 0
+gpon_network_transmit_bytes_total{device="br0"} 10765869
+# HELP gpon_network_transmit_packets_total Interface counter from /proc/net/dev.
+# TYPE gpon_network_transmit_packets_total counter
+gpon_network_transmit_packets_total{device="lo"} 350
+gpon_network_transmit_packets_total{device="eth0"} 18277
+gpon_network_transmit_packets_total{device="eth0.2"} 0
+gpon_network_transmit_packets_total{device="eth0.3"} 0
+gpon_network_transmit_packets_total{device="nas0"} 0
+gpon_network_transmit_packets_total{device="pon0"} 0
+gpon_network_transmit_packets_total{device="br0"} 17011
+# HELP gpon_network_transmit_errs_total Interface counter from /proc/net/dev.
+# TYPE gpon_network_transmit_errs_total counter
+gpon_network_transmit_errs_total{device="lo"} 0
+gpon_network_transmit_errs_total{device="eth0"} 0
+gpon_network_transmit_errs_total{device="eth0.2"} 0
+gpon_network_transmit_errs_total{device="eth0.3"} 0
+gpon_network_transmit_errs_total{device="nas0"} 0
+gpon_network_transmit_errs_total{device="pon0"} 0
+gpon_network_transmit_errs_total{device="br0"} 0
+# HELP gpon_network_transmit_drop_total Interface counter from /proc/net/dev.
+# TYPE gpon_network_transmit_drop_total counter
+gpon_network_transmit_drop_total{device="lo"} 0
+gpon_network_transmit_drop_total{device="eth0"} 0
+gpon_network_transmit_drop_total{device="eth0.2"} 0
+gpon_network_transmit_drop_total{device="eth0.3"} 0
+gpon_network_transmit_drop_total{device="nas0"} 0
+gpon_network_transmit_drop_total{device="pon0"} 0
+gpon_network_transmit_drop_total{device="br0"} 0
+# HELP gpon_bias_current_ma Bias current of the GPON transceiver, in mA.
+# TYPE gpon_bias_current_ma gauge
+gpon_bias_current_ma 14.700000
+# HELP gpon_rx_power_dbm Rx power of the GPON transceiver, in dBm.
+# TYPE gpon_rx_power_dbm gauge
+gpon_rx_power_dbm -23.010300
+# HELP gpon_tx_power_dbm Tx power of the GPON transceiver, in dBm.
+# TYPE gpon_tx_power_dbm gauge
+gpon_tx_power_dbm 2.367146
+# HELP gpon_temperature_celsius Temperature of the GPON transceiver, in Celsius.
+# TYPE gpon_temperature_celsius gauge
+gpon_temperature_celsius 42.359375
+# HELP gpon_voltage_volts Supply voltage of the GPON transceiver, in Volts.
+# TYPE gpon_voltage_volts gauge
+gpon_voltage_volts 3.170300
+# HELP gpon_onu_state ONU state number, the N in O(N). 5 is operational.
+# TYPE gpon_onu_state gauge
+gpon_onu_state 5
+# HELP gpon_alarm GPON alarm state; 1 means the alarm is asserted.
+# TYPE gpon_alarm gauge
+gpon_alarm{alarm="los"} 0
+gpon_alarm{alarm="lof"} 0
+gpon_alarm{alarm="lom"} 0
+gpon_alarm{alarm="sf"} 0
+gpon_alarm{alarm="sd"} 0
+gpon_alarm{alarm="tx_too_long"} 0
+gpon_alarm{alarm="tx_mismatch"} 0
+# HELP gpon_port_receive_octets_total Octets received on a switch port. port="2" is the PON side, "0" the host SerDes side.
+# TYPE gpon_port_receive_octets_total counter
+gpon_port_receive_octets_total{port="0"} 348805189
+gpon_port_receive_octets_total{port="2"} 5064397516
+# HELP gpon_port_transmit_octets_total Octets transmitted on a switch port.
+# TYPE gpon_port_transmit_octets_total counter
+gpon_port_transmit_octets_total{port="0"} 468169341
+gpon_port_transmit_octets_total{port="2"} 3042223693
+# HELP gpon_port_receive_packets_total Packets received on a switch port, by destination kind.
+# TYPE gpon_port_receive_packets_total counter
+gpon_port_receive_packets_total{port="0",kind="unicast"} 433445
+gpon_port_receive_packets_total{port="2",kind="unicast"} 5431597
+gpon_port_receive_packets_total{port="0",kind="multicast"} 0
+gpon_port_receive_packets_total{port="2",kind="multicast"} 10394
+gpon_port_receive_packets_total{port="0",kind="broadcast"} 93
+gpon_port_receive_packets_total{port="2",kind="broadcast"} 28599
+# HELP gpon_port_transmit_packets_total Packets transmitted on a switch port, by destination kind.
+# TYPE gpon_port_transmit_packets_total counter
+gpon_port_transmit_packets_total{port="0",kind="unicast"} 499811
+gpon_port_transmit_packets_total{port="2",kind="unicast"} 4239778
+gpon_port_transmit_packets_total{port="0",kind="multicast"} 804
+gpon_port_transmit_packets_total{port="2",kind="multicast"} 0
+gpon_port_transmit_packets_total{port="0",kind="broadcast"} 2196
+gpon_port_transmit_packets_total{port="2",kind="broadcast"} 2382
+# HELP gpon_port_receive_drops_total Received frames dropped by the bridge on a switch port.
+# TYPE gpon_port_receive_drops_total counter
+gpon_port_receive_drops_total{port="0"} 0
+gpon_port_receive_drops_total{port="2"} 56117
+# HELP gpon_port_transmit_drops_total Frames dropped instead of being transmitted on a switch port.
+# TYPE gpon_port_transmit_drops_total counter
+gpon_port_transmit_drops_total{port="0"} 0
+gpon_port_transmit_drops_total{port="2"} 0
+# HELP gpon_port_receive_errors_total Malformed frames received on a switch port, by error kind.
+# TYPE gpon_port_receive_errors_total counter
+gpon_port_receive_errors_total{port="0",kind="crc_align"} 0
+gpon_port_receive_errors_total{port="2",kind="crc_align"} 4
+gpon_port_receive_errors_total{port="0",kind="fragment"} 0
+gpon_port_receive_errors_total{port="2",kind="fragment"} 0
+gpon_port_receive_errors_total{port="0",kind="jabber"} 0
+gpon_port_receive_errors_total{port="2",kind="jabber"} 0
+gpon_port_receive_errors_total{port="0",kind="undersize"} 0
+gpon_port_receive_errors_total{port="2",kind="undersize"} 0
+gpon_port_receive_errors_total{port="0",kind="oversize"} 0
+gpon_port_receive_errors_total{port="2",kind="oversize"} 143
+# HELP gpon_port_pause_frames_total 802.3x pause frames seen on a switch port.
+# TYPE gpon_port_pause_frames_total counter
+gpon_port_pause_frames_total{port="0",direction="receive"} 0
+gpon_port_pause_frames_total{port="2",direction="receive"} 0
+gpon_port_pause_frames_total{port="0",direction="transmit"} 0
+gpon_port_pause_frames_total{port="2",direction="transmit"} 0

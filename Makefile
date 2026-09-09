@@ -16,6 +16,14 @@ PORT      ?= 12345
 # Which binary the one-off targets act on.
 BIN  ?= $(BUILD)/metricsd
 
+# Baked into the binary and exported as gpon_exporter_build_info. It exists
+# because the exporter can be updated WITHOUT reflashing — rc35 prefers
+# /etc/config/metricsd, on the jffs2 config partition, over the /bin/metricsd
+# in the image — so an override can outlive the image it was built against with
+# nothing in the metrics to say so. Computed on the host: the toolchain
+# container has no git and no repo history.
+BUILD_ID ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo unknown)
+
 ifeq ($(IN_CONTAINER),1)
 
 # ---------------------------------------------------------------- in container
@@ -34,6 +42,13 @@ STRIP   := $(CROSS)strip
 CFLAGS  := -std=c99 -Os -Wall -Wextra \
            -march=mips1 -mabi=32 -EB -msoft-float -G0 \
            -fno-pic -mno-abicalls -ffreestanding -fno-builtin -fno-stack-protector
+
+# Passed in from the host target; the header defaults it if absent so a bare
+# in-container build still compiles.
+BUILD_ID ?=
+ifneq ($(BUILD_ID),)
+CFLAGS  += -DBUILD_ID='"$(BUILD_ID)"'
+endif
 
 LDFLAGS := -nostdlib -nostartfiles -static -Wl,-e,_start -Wl,--build-id=none
 
@@ -65,7 +80,7 @@ image:
 # The Prometheus exporter, standalone HTTP server. This is the one that works
 # on the ODI stick — Realtek's boa has no external-CGI path.
 httpd: image
-	$(RUN) make IN_CONTAINER=1 $(BUILD)/metricsd
+	$(RUN) make IN_CONTAINER=1 BUILD_ID='$(BUILD_ID)' $(BUILD)/metricsd
 
 ## --- inspection --------------------------------------------------------------
 

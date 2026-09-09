@@ -87,6 +87,28 @@ web UI or from a manual `diag`, and they are wider than 32 bits (an observed
 `ifInOctets` of 5057428519 is past 2^32). Both properties are why these can be
 exported as real `counter`s, verbatim, with no accumulation in the exporter.
 
+**Port 0's counters are reset every 15 minutes; port 2's are not.** Nothing in
+this exporter does it — `omci_app` does, at each OMCI performance-monitoring
+interval boundary. Caught by sampling `ifOutOctets` against ME24's `IntEndTime`
+once a minute; both flip in the same 60 s window:
+
+```
+T=11727.56  p0out=487034420  IntEndTime=12
+T=11787.66  p0out= 27505987  IntEndTime=13
+```
+
+ME24 `EthPmHistoryData` has an instance and monitors the **UNI**, which is port
+0. ME321/322 — the PON-side Ethernet frame PM MEs — have no instances on either
+of our lines, which is exactly why port 2 is spared: over 30 consecutive reads
+across 5 minutes, and every read taken since, it only ever grew.
+
+This does not change the metric type. `counter` is right precisely because
+Prometheus detects a counter reset and handles it; the cost is one interval's
+`rate()` every 15 minutes, on the host-side port. **Port 2 — the PON side, the
+one that answers "is it forwarding" — is unaffected.** Reading remains
+non-destructive either way; the resets come from PM collection, not from
+scraping.
+
 The device prints 46 counters per port. Only those with an unambiguous unit are
 exported; the rest are packet-size histograms and half-duplex collision
 counters that mean nothing on a SerDes or a PON. Run the command by hand to see

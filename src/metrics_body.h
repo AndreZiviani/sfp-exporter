@@ -19,6 +19,28 @@
 #define DIAG_PATH "/bin/diag"
 
 /*
+ * Build identity, reported as gpon_exporter_build_info.
+ *
+ * This matters more here than it looks. The exporter can be replaced WITHOUT
+ * reflashing: rc35 prefers /etc/config/metricsd — on the jffs2 config
+ * partition, which fwu.sh does not touch — over the /bin/metricsd baked into
+ * the image. So an override survives both reboots and reflashes, and can end up
+ * older than the image it is running on with nothing to say so. Exporting the
+ * version AND the path it was started from makes that visible from a query
+ * instead of an inspection.
+ *
+ * BUILD_ID comes from `git describe` on the host at build time; see the
+ * Makefile.
+ */
+#ifndef BUILD_ID
+#define BUILD_ID "unknown"
+#endif
+
+/* argv[0] as invoked, set by main(). Not a copy: argv lives for the life of the
+ * process. */
+static const char *exporter_path = "unknown";
+
+/*
  * Values are emitted as the literal text diag printed. No parsing to a number
  * and back: Prometheus wants a bare decimal and diag already produces one, so
  * this avoids float formatting, and with it soft-float and a libc. It also
@@ -848,12 +870,41 @@ static void emit_diag_metrics(int fd)
 	}
 }
 
+/*
+ * A label value must not contain a quote, a backslash or a newline, and this
+ * one comes from argv[0] — chosen by whoever started the process, not by us.
+ * Escaping it properly would be more code than refusing it: an unexpected path
+ * is reported as "unknown" rather than being allowed to produce an exposition
+ * Prometheus cannot parse.
+ */
+static int label_safe(const char *s)
+{
+	unsigned long i;
+
+	for (i = 0; s[i]; i++)
+		if (s[i] == '"' || s[i] == '\\' || s[i] == '\n' || s[i] == '\r')
+			return 0;
+	return i != 0;
+}
+
+static void metric_build_info(int fd)
+{
+	emit_header(fd, "gpon_exporter_build_info",
+		    "Always 1. version is `git describe` at build time; path is argv[0], "
+		    "which says whether this is the image's /bin/metricsd or an "
+		    "/etc/config override.", "gauge");
+	put_fd(fd, "gpon_exporter_build_info{version=\"" BUILD_ID "\",path=\"");
+	put_fd(fd, label_safe(exporter_path) ? exporter_path : "unknown");
+	put_fd(fd, "\"} 1\n");
+}
+
 static void emit_metrics(int fd)
 {
 	put_fd(fd, "# HELP gpon_exporter_up Always 1. Confirms the exporter ran.\n"
 		   "# TYPE gpon_exporter_up gauge\n"
 		   "gpon_exporter_up 1\n");
 
+	metric_build_info(fd);
 	metric_uptime(fd);
 	metric_loadavg(fd);
 	metric_meminfo(fd);
