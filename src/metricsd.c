@@ -63,6 +63,19 @@ int main(int argc, char **argv)
 {
 	unsigned long port = parse_u16(argc > 1 ? argv[1] : 0, DEFAULT_PORT);
 
+	/*
+	 * Ignore SIGPIPE, or a client that hangs up mid-response kills the
+	 * exporter. Writing to a socket whose peer has closed raises it and the
+	 * default action is to terminate; with no libc nothing installs a
+	 * handler for us.
+	 *
+	 * Prometheus reads a scrape to the end, which is why this never showed
+	 * in months of running. It is still one interrupted `curl :9100` away,
+	 * and it took the sibling confd daemon down repeatedly once a browser
+	 * was pointed at it. Two lines to remove the whole class.
+	 */
+	sig_ignore(SIGPIPE);
+
 	/* Reported as the `path` label on gpon_exporter_build_info, so a scrape
 	 * says whether this is the image's binary or an /etc/config override. */
 	if (argc > 0 && argv[0] && argv[0][0])

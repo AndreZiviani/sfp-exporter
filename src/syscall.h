@@ -24,6 +24,10 @@
  * architecture. It needs Linux 2.6.27; the stick runs 2.6.30.9, and the number
  * below is from Realtek's own asm/unistd.h for this kernel (4000 + 328). */
 #define __NR_pipe2      4328
+#define __NR_rt_sigaction 4194
+
+#define SIGPIPE 13
+#define SIG_IGN 1
 #define __NR_socket     4183
 #define __NR_bind       4169
 #define __NR_listen     4174
@@ -76,6 +80,34 @@ static long syscall3(long n, long a, long b, long c)
 		: SYSCALL_CLOBBERS);
 
 	return (r7 && r2 > 0) ? -r2 : r2;
+}
+
+/*
+ * Ignore a signal.
+ *
+ * rt_sigaction rather than signal(2): __NR_signal (4048) is accepted by this
+ * kernel and does nothing — verified by sending SIGPIPE to a process that had
+ * supposedly ignored it and watching it die anyway.
+ *
+ * MIPS lays struct sigaction out differently from every other architecture:
+ * sa_flags comes FIRST, then sa_handler, then the mask. Getting that backwards
+ * installs the handler as the flags word and silently does nothing.
+ *
+ *     struct sigaction { unsigned int sa_flags; void *sa_handler; sigset_t sa_mask; };
+ *
+ * sigsetsize is _NSIG/8 = 16 on this target.
+ */
+__attribute__((unused)) static long sig_ignore(long signum)
+{
+	long act[6];
+	unsigned long i;
+
+	for (i = 0; i < 6; i++)
+		act[i] = 0;
+	act[0] = 0;            /* sa_flags   */
+	act[1] = SIG_IGN;      /* sa_handler */
+
+	return __syscall6(__NR_rt_sigaction, signum, (long)act, 0, 16, 0, 0);
 }
 
 __attribute__((unused)) static unsigned long str_len(const char *s)
