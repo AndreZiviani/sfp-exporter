@@ -803,6 +803,44 @@ static int cmd_is(const char *a, unsigned long alen, const char *b)
 	return b[alen] == 0;
 }
 
+/*
+ * Whether the diag scrape worked, and how completely.
+ *
+ * Batching every command into one fork made diag a single failure domain: one
+ * hang, crash or missing binary now costs ~90 metric families at once. Their
+ * absence is detectable in Prometheus, but absence is a weak signal -- it looks
+ * identical to a stick that has not been scraped yet, or to a relabelling
+ * mistake, and gpon_exporter_up is hardcoded to 1 so it keeps reporting health
+ * that only covers the /proc half.
+ *
+ * The section count matters as much as the boolean. diag's output is about
+ * 6.9 KB into a 16 KB buffer, and a truncated read costs the TAIL sections
+ * silently -- the mib counter dump is last, so a partial scrape looks like a
+ * working one that simply has no forwarding data. Emitting parsed against
+ * expected makes that a comparison rather than something you have to notice.
+ */
+static void emit_diag_health(int fd, int up, unsigned long parsed,
+			     unsigned long expected)
+{
+	emit_header(fd, "gpon_diag_up",
+		    "1 when /bin/diag ran and at least one section parsed.", "gauge");
+	put_fd(fd, "gpon_diag_up ");
+	put_fd(fd, up ? "1\n" : "0\n");
+
+	emit_header(fd, "gpon_diag_sections_parsed",
+		    "diag command sections understood in this scrape.", "gauge");
+	put_fd(fd, "gpon_diag_sections_parsed ");
+	put_u32_fd(fd, parsed);
+	put_fd(fd, "\n");
+
+	emit_header(fd, "gpon_diag_sections_expected",
+		    "diag command sections this build asks for; parsed below this is a truncated scrape.",
+		    "gauge");
+	put_fd(fd, "gpon_diag_sections_expected ");
+	put_u32_fd(fd, expected);
+	put_fd(fd, "\n");
+}
+
 static void emit_diag_metrics(int fd)
 {
 	static char *const argv[] = { "diag", 0 };
@@ -814,10 +852,16 @@ static void emit_diag_metrics(int fd)
 	 * more than it looks. */
 	char buf[16384];
 	unsigned long cs;
+	unsigned long parsed = 0, expected = 0;
+
+	while (diag_secs[expected].cmd)
+		expected++;
 
 	build_diag_script(script, sizeof(script));
-	if (run_script_to_buf(DIAG_PATH, argv, script, buf, sizeof(buf)) <= 0)
+	if (run_script_to_buf(DIAG_PATH, argv, script, buf, sizeof(buf)) <= 0) {
+		emit_diag_health(fd, 0, 0, expected);
 		return;
+	}
 
 	/* cs always points at a command, just past its prompt. find_after
 	 * returns the position AFTER the needle, so the next section's start is
@@ -861,6 +905,7 @@ static void emit_diag_metrics(int fd)
 				emit_scalar(fd, diag_secs[t].metric,
 					    diag_secs[t].help, buf + ss,
 					    diag_secs[t].scan);
+			parsed++;
 			break;
 		}
 
@@ -868,6 +913,8 @@ static void emit_diag_metrics(int fd)
 			buf[cut] = saved;
 		cs = nxt;
 	}
+
+	emit_diag_health(fd, parsed > 0, parsed, expected);
 }
 
 /*
