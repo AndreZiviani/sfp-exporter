@@ -54,7 +54,7 @@ The result is 8 KB and takes ~280 ms per scrape, most of which is forking
 
 ## Metrics
 
-From `/bin/diag`, one fork each:
+From `/bin/diag`, **all in a single fork per scrape**:
 
 | metric | source |
 |---|---|
@@ -106,6 +106,40 @@ from "did not scrape".
 
 **A metric that cannot be read is omitted entirely, never emitted as zero.** An
 absent series is honest; `0` reads as a genuine measurement of zero dBm.
+
+### One fork per scrape, not one per metric
+
+`/bin/diag` costs ~32 ms per invocation on this CPU, and almost all of it is its
+own startup — it links `librtk`, `libmib` and `libomci_api`, and relocating
+those dwarfs the work. Measured over 20 iterations each:
+
+| | per call |
+|---|---|
+| `diag pon get transceiver rx-power` | 32.5 ms |
+| `diag gpon get alarm-status` | 32.0 ms |
+| `diag mib dump counter port all` (5.9 KB, 92 counters) | 35.5 ms |
+| `/bin/true` — bare fork+exec baseline | 4.0 ms |
+
+So cost scales with the number of *processes*, not the number of metrics. diag
+also reads commands from stdin and echoes each after its `RTK.0> ` prompt, so
+the whole scrape goes into one invocation and the output splits back into
+per-command sections. Measured end to end over HTTP on the device:
+
+| | per scrape |
+|---|---|
+| one fork, 8 commands, 29 families | **86.5 ms** |
+| eight forks, 21 families | 291.5 ms |
+
+An additional metric now costs its own work — 1-3 ms — instead of another
+process startup.
+
+Two consequences worth knowing. **This is one failure domain**: a diag that
+hangs or crashes now costs every diag-derived metric rather than one. The
+`/proc` metrics are unaffected and `gpon_exporter_up` still reports, so a scrape
+still tells you the stick is alive. And **it depends on the `RTK.0> ` prompt
+string** to split sections; if that ever changes, metrics go absent rather than
+wrong. The command list and the strings matched against it are built from one
+table in `src/metrics_body.h` so they cannot drift apart.
 
 ### Known caveats
 
