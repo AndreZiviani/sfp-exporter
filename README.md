@@ -123,8 +123,22 @@ From `/proc`, which costs no fork at all:
 | `gpon_memory_bytes{kind="total\|free\|buffers\|cached"}` | `/proc/meminfo` |
 | `gpon_network_{receive,transmit}_{bytes,packets,errs,drop}_total{device="..."}` | `/proc/net/dev` |
 
-Plus `gpon_exporter_up`, always 1, to distinguish "scraped and found nothing"
-from "did not scrape".
+Plus three health gauges:
+
+| metric | meaning |
+|---|---|
+| `gpon_exporter_up` | always 1 — distinguishes "scraped and found nothing" from "did not scrape" |
+| `gpon_diag_up` | 1 when `/bin/diag` ran and at least one section parsed |
+| `gpon_diag_sections_parsed` / `_expected` | how much of the diag scrape was understood |
+
+`gpon_exporter_up` covers only the `/proc` half, so it stays 1 while every
+diag-derived metric is missing. The other two close that: `gpon_diag_up 0` is a
+diag that did not run, and `parsed < expected` is a scrape that ran and was
+**truncated** — which is the quiet one, because the tail sections are lost and
+what remains looks like a healthy scrape with no forwarding data.
+
+    gpon_diag_up == 0                                  # diag is broken
+    gpon_diag_sections_parsed < gpon_diag_sections_expected   # partial scrape
 
 **A metric that cannot be read is omitted entirely, never emitted as zero.** An
 absent series is honest; `0` reads as a genuine measurement of zero dBm.
@@ -156,9 +170,11 @@ An additional metric now costs its own work — 1-3 ms — instead of another
 process startup.
 
 Two consequences worth knowing. **This is one failure domain**: a diag that
-hangs or crashes now costs every diag-derived metric rather than one. The
-`/proc` metrics are unaffected and `gpon_exporter_up` still reports, so a scrape
-still tells you the stick is alive. And **it depends on the `RTK.0> ` prompt
+hangs or crashes now costs every diag-derived metric rather than one. That is
+what `gpon_diag_up` and the section counts are for — the `/proc` metrics are
+unaffected and `gpon_exporter_up` is hardcoded to 1, so without them the only
+signal is ~90 series going absent, which looks identical to a stick that has not
+been scraped yet or to a relabelling mistake. And **it depends on the `RTK.0> ` prompt
 string** to split sections; if that ever changes, metrics go absent rather than
 wrong. The command list and the strings matched against it are built from one
 table in `src/metrics_body.h` so they cannot drift apart.

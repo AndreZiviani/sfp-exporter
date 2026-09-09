@@ -168,3 +168,12 @@ gpon_port_pause_frames_total{port="0",direction="receive"} 0
 gpon_port_pause_frames_total{port="2",direction="receive"} 0
 gpon_port_pause_frames_total{port="0",direction="transmit"} 0
 gpon_port_pause_frames_total{port="2",direction="transmit"} 0
+# HELP gpon_diag_up 1 when /bin/diag ran and at least one section parsed.
+# TYPE gpon_diag_up gauge
+gpon_diag_up 1
+# HELP gpon_diag_sections_parsed diag command sections understood in this scrape.
+# TYPE gpon_diag_sections_parsed gauge
+gpon_diag_sections_parsed 8
+# HELP gpon_diag_sections_expected diag command sections this build asks for; parsed below this is a truncated scrape.
+# TYPE gpon_diag_sections_expected gauge
+gpon_diag_sections_expected 8
