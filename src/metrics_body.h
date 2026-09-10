@@ -945,6 +945,65 @@ static void metric_build_info(int fd)
 	put_fd(fd, "\"} 1\n");
 }
 
+/*
+ * The image's build manifest, as labels on one gauge.
+ *
+ * gpon_exporter_build_info says which EXPORTER is running; this says which
+ * IMAGE it came out of, which is a different question and the one that was
+ * unanswerable before /etc/odi-build existed. Both partitions of a stick used
+ * to report the same vendor version string, so "which build is on which half"
+ * had to be reconstructed from memory.
+ *
+ * Absent on an older image, in which case nothing is emitted rather than
+ * emitting empty labels -- an absent series is honest, and a label set full of
+ * "" is not.
+ */
+static void metric_image_info(int fd)
+{
+	char man[512];
+	long n = read_file("/etc/odi-build", man, sizeof(man));
+	unsigned long i = 0;
+	int first = 1;
+
+	if (n <= 0)
+		return;
+
+	emit_header(fd, "gpon_image_info",
+		    "Always 1. Labels name the firmware image this stick was built "
+		    "from and the component builds inside it, from /etc/odi-build.",
+		    "gauge");
+	put_fd(fd, "gpon_image_info{");
+	while (man[i]) {
+		unsigned long ls = i, le = i, eq;
+
+		while (man[le] && man[le] != '\n')
+			le++;
+		eq = ls;
+		while (eq < le && man[eq] != '=')
+			eq++;
+		if (eq == le || eq == ls)
+			goto next;
+
+		/* Both halves have to survive being a label. A stray quote in a
+		 * git describe string would produce an exposition Prometheus
+		 * cannot parse, so the pair is dropped rather than escaped. */
+		man[eq] = 0;
+		man[le] = 0;
+		if (label_safe(man + ls) && label_safe(man + eq + 1)) {
+			if (!first)
+				put_fd(fd, ",");
+			first = 0;
+			put_fd(fd, man + ls);
+			put_fd(fd, "=\"");
+			put_fd(fd, man + eq + 1);
+			put_fd(fd, "\"");
+		}
+next:
+		i = le + 1;
+	}
+	put_fd(fd, "} 1\n");
+}
+
 static void emit_metrics(int fd)
 {
 	put_fd(fd, "# HELP gpon_exporter_up Always 1. Confirms the exporter ran.\n"
@@ -952,6 +1011,7 @@ static void emit_metrics(int fd)
 		   "gpon_exporter_up 1\n");
 
 	metric_build_info(fd);
+	metric_image_info(fd);
 	metric_uptime(fd);
 	metric_loadavg(fd);
 	metric_meminfo(fd);

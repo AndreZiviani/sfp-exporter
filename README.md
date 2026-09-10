@@ -128,6 +128,7 @@ Plus three health gauges:
 | metric | meaning |
 |---|---|
 | `gpon_exporter_up` | always 1 — distinguishes "scraped and found nothing" from "did not scrape" |
+| `gpon_image_info` | which firmware image this stick was built from, and the component builds inside it |
 | `gpon_diag_up` | 1 when `/bin/diag` ran and at least one section parsed |
 | `gpon_diag_sections_parsed` / `_expected` | how much of the diag scrape was understood |
 

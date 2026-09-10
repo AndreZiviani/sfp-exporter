@@ -177,3 +177,6 @@ gpon_diag_sections_parsed 8
 # HELP gpon_diag_sections_expected diag command sections this build asks for; parsed below this is a truncated scrape.
 # TYPE gpon_diag_sections_expected gauge
 gpon_diag_sections_expected 8
+# HELP gpon_image_info Always 1. Labels name the firmware image this stick was built from and the component builds inside it, from /etc/odi-build.
+# TYPE gpon_image_info gauge
+gpon_image_info{image="ODI-260910-abc1234",base="base-a4k-260909.tar",confd="858362f",exporter="v1.0.1-6-g60083e9",built="2026-09-10T00:12Z"} 1
