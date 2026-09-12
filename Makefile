@@ -54,7 +54,25 @@ LDFLAGS := -nostdlib -nostartfiles -static -Wl,-e,_start -Wl,--build-id=none
 
 HDRS := src/syscall.h src/metrics_body.h
 
-$(BUILD)/metricsd: src/start.S src/metricsd.c $(HDRS) | $(BUILD)
+# BUILD_ID is compiled in, but it is a make VARIABLE -- make cannot see it
+# change, so with the sources untouched it will not rebuild and the binary keeps
+# whatever stamp it was last compiled with.
+#
+# That shipped: an image was built whose manifest said exporter
+# v1.0.1-7-gb4d4e9f while /bin/metricsd inside it reported
+# v1.0.1-6-g60083e9-dirty. The code was current; only the stamp was stale, and
+# the manifest -- whose entire job is saying what is on the stick -- was wrong.
+# gpon_exporter_build_info caught it on the first boot after flashing, which is
+# exactly why that metric exists.
+#
+# Park the value in a file and depend on the file. FORCE makes the recipe run
+# every time; `cmp` means the file is only rewritten, and the mtime only moves,
+# when the value actually differs.
+.PHONY: FORCE
+$(BUILD)/.build-id: FORCE | $(BUILD)
+	@printf '%s' '$(BUILD_ID)' | cmp -s - $@ 2>/dev/null || printf '%s' '$(BUILD_ID)' > $@
+
+$(BUILD)/metricsd: src/start.S src/metricsd.c $(HDRS) $(BUILD)/.build-id | $(BUILD)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(filter %.S %.c,$^)
 	$(STRIP) $@
 
