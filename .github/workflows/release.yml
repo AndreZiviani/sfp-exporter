@@ -19,7 +19,13 @@ jobs:
       contents: write   # needed only by the release step below
 
     steps:
+      # fetch-depth 0, because BUILD_ID is `git describe --tags` and the
+      # default shallow checkout fetches no tags at all -- so the published
+      # binary would report version="unknown" on the very tag that published
+      # it.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Build the cross-toolchain image
         run: docker build -t sfp-exporter-toolchain .

@@ -123,11 +123,13 @@ deploy:
 
 # Exactly what the release workflow runs, so a tag cannot fail on something you
 # could have caught locally.
-release: image
-	$(RUN) make IN_CONTAINER=1 $(BUILD)/metricsd
-	$(RUN) scripts/verify.sh $(BUILD)/metricsd
-	$(RUN) scripts/isa-audit.sh $(BUILD)/metricsd
-	$(MAKE) sums
+#
+# It runs the SAME targets rather than repeating their recipes, which is what
+# made the claim above false: this target rebuilt metricsd with its own command
+# line and left BUILD_ID out, so every binary `make release` produced reported
+# `version="unknown"` while `make httpd` -- what CI actually runs -- stamped it
+# correctly. A copy of a recipe is a copy that drifts.
+release: httpd verify isa sums
 
 # Written inside the container, not on the host. build/ is created by the
 # container as root, so on Linux — every CI runner — the host user cannot write
