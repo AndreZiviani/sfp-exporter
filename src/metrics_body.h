@@ -841,6 +841,45 @@ static void emit_diag_health(int fd, int up, unsigned long parsed,
 	put_fd(fd, "\n");
 }
 
+/*
+ * Provisioned, as opposed to merely synced.
+ *
+ * O5 says the OLT ranged the ONU and finished MIB sync; it says nothing about
+ * whether a service exists. An OLT that accepts a wrong serial or PLOAM
+ * password leaves the stick at O5 with no VLAN, no GEM flow and no bridge
+ * connection, and every other metric here looks healthy (Anime4000/RTL960x
+ * issues 461 and 475). The one table that answers is the data-path service
+ * table: `omcicli dump srvflow` prints one "SERVID n: Used: 1, (...)" row per
+ * installed connection, on the vendor omci_app and on odi-oss omcid alike.
+ * Counting those rows costs one short fork; the vendor binary prints 256
+ * rows, most of them Used: 0.
+ */
+#define OMCICLI_PATH "/bin/omcicli"
+
+static void emit_omci_metrics(int fd)
+{
+	static char *const argv[] = { "omcicli", "dump", "srvflow", 0 };
+	char buf[8192];
+	unsigned long i, used = 0;
+	long n = run_to_buf(OMCICLI_PATH, argv, buf, sizeof(buf) - 1);
+
+	if (n <= 0)
+		return;		/* no omcicli, or no daemon behind it: say nothing */
+	buf[n] = 0;
+	for (i = 0; buf[i]; i++)
+		if (buf[i] == 'U' && buf[i + 1] == 's' && buf[i + 2] == 'e' &&
+		    buf[i + 3] == 'd' && buf[i + 4] == ':' && buf[i + 5] == ' ' &&
+		    buf[i + 6] == '1')
+			used++;
+	emit_header(fd, "gpon_omci_services",
+		    "Bridge connections (services) the OLT has provisioned and the ONU "
+		    "installed, from `omcicli dump srvflow`. 0 at O5 means synced but "
+		    "not provisioned.", "gauge");
+	put_fd(fd, "gpon_omci_services ");
+	put_u32_fd(fd, used);
+	put_fd(fd, "\n");
+}
+
 static void emit_diag_metrics(int fd)
 {
 	static char *const argv[] = { "diag", 0 };
@@ -1019,6 +1058,9 @@ static void emit_metrics(int fd)
 
 	/* Everything from /bin/diag, in a single fork. */
 	emit_diag_metrics(fd);
+
+	/* And one more fork for the OMCI service table. */
+	emit_omci_metrics(fd);
 
 	/*
 	 * NOT exporting `gpon show counter global ds-eth`. Four consecutive reads
