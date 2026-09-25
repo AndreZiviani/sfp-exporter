@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write   # needed only by the release step below
+      packages: read    # the toolchain image, while its package is private
 
     steps:
       # fetch-depth 0, because BUILD_ID is `git describe --tags` and the
@@ -27,8 +28,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Build the cross-toolchain image
-        run: docker build -t sfp-exporter-toolchain .
+      # The toolchain image (toolchain.env) is pulled by digest from ghcr.io.
+      # Once the package is public this login is unnecessary and harmless;
+      # while it is private the pull needs it, and the package must grant
+      # this repository read access (package settings, Manage Actions access).
+      - name: Log in to ghcr.io (needed only while the toolchain package is private)
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Pull the toolchain image
+        run: make image
 
       - name: Build
         run: make httpd
@@ -39,20 +47,25 @@ jobs:
       - name: Verify ELF shape
         run: make verify BIN=build/metricsd
 
-      # The ISA gate. Exit 1 means the binary contains an instruction the RLX5281 raises
-      # SIGILL on: never publishable. Exit 2 means it contains a mnemonic never
-      # executed on real hardware — surfaced loudly, but not a build failure,
-      # since the fix is to execute it on a device and extend the PRESENT list.
+      # The ISA gate. `make isa` fails when the binary contains an instruction
+      # the RLX5281 raises SIGILL on (or floating point): never publishable.
+      # A mnemonic never executed on real hardware is printed as UNVERIFIED
+      # and surfaced here as a warning, not a failure, since the fix is to
+      # execute it on a device and extend the allowlist in odi-toolchain.
+      #
+      # The failure is read from make exit status being non-zero, never from
+      # its value: make exits 2 for ANY failed recipe, so the earlier
+      # `case 2) warning` here turned a trapping binary into a warning.
       - name: Audit instructions against RLX5281
         run: |
-          set +e
-          make isa BIN=build/metricsd
-          rc=$?
-          case "$rc" in
-            0) echo "::notice::metricsd — every instruction confirmed present on hardware" ;;
-            2) echo "::warning::metricsd — contains unverified mnemonics, see log" ;;
-            *) echo "::error::metricsd — contains instructions RLX5281 does not implement"; exit 1 ;;
-          esac
+          set -o pipefail
+          make isa BIN=build/metricsd 2>&1 | tee isa.log || {
+            echo "::error::metricsd — contains instructions RLX5281 does not implement"; exit 1; }
+          if grep -q UNVERIFIED isa.log; then
+            echo "::warning::metricsd — contains unverified mnemonics, see log"
+          else
+            echo "::notice::metricsd — every instruction confirmed present on hardware"
+          fi
 
       # Runs inside the container: build/ belongs to root here, so a host-side
       # redirect into it fails with EACCES on Linux runners.
@@ -62,7 +75,7 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: sfp-exporter-${{ github.sha }}
+          name: odi-sfp-exporter-${{ github.sha }}
           path: |
             build/metricsd
             build/SHA256SUMS

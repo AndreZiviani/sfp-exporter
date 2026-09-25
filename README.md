@@ -1,6 +1,6 @@
-# sfp-exporter
+# odi-sfp-exporter
 
-[![build](https://github.com/AndreZiviani/sfp-exporter/actions/workflows/release.yml/badge.svg)](https://github.com/AndreZiviani/sfp-exporter/actions/workflows/release.yml)
+[![build](https://github.com/AndreZiviani/odi-sfp-exporter/actions/workflows/release.yml/badge.svg)](https://github.com/AndreZiviani/odi-sfp-exporter/actions/workflows/release.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A Prometheus exporter that runs **on** an RTL9601-based GPON SFP ONU stick,
@@ -224,8 +224,8 @@ Every tagged release carries prebuilt static binaries, so you do not need a
 toolchain to use this:
 
 ```sh
-curl -fsSLO https://github.com/AndreZiviani/sfp-exporter/releases/latest/download/metricsd
-curl -fsSLO https://github.com/AndreZiviani/sfp-exporter/releases/latest/download/SHA256SUMS
+curl -fsSLO https://github.com/AndreZiviani/odi-sfp-exporter/releases/latest/download/metricsd
+curl -fsSLO https://github.com/AndreZiviani/odi-sfp-exporter/releases/latest/download/SHA256SUMS
 sha256sum -c --ignore-missing SHA256SUMS
 ```
 
@@ -235,14 +235,19 @@ instruction census against what the RLX5281 actually implements.
 
 ## Build
 
-Requires Docker. The cross toolchain lives in a container; nothing is installed
-on the host. Works on x86-64 and Apple Silicon.
+Requires Docker. The cross toolchain lives in a container -- the shared
+freestanding toolchain image from
+[odi-toolchain](https://github.com/AndreZiviani/odi-toolchain), pinned by
+digest in `toolchain.env` and pulled on first use; nothing is installed on the
+host. Works on x86-64 and Apple Silicon. [`docs/BUILDING.md`](docs/BUILDING.md)
+has the details, including logging in while the image is private and building
+it locally instead.
 
 ```sh
 make            # build, verify and audit — the usual case
 make httpd      # the exporter -> build/metricsd
 make verify     # assert the ELF shape the stick can actually load
-make isa        # instruction census against what the RLX5281 implements
+make isa        # the ISA gate: isa-audit and isa-allowlist, from the toolchain image
 make run        # execute locally under qemu-user
 make release    # everything CI does, including SHA256SUMS
 make shell      # a shell in the toolchain container
@@ -253,9 +258,9 @@ make clean
 legality** — qemu emulates a full MIPS32 CPU and will happily execute the `mul`
 and `clz` that trap on real hardware. `make isa` is the gate for that.
 
-`make isa` exits 0 when every mnemonic is confirmed present on the hardware, 2
-when the binary contains one that has never been executed on a real device, and
-1 when it contains one known to trap. CI treats 1 as fatal and 2 as a warning.
+`make isa` fails when the binary contains an instruction known to trap, or any
+floating point. A mnemonic that has never been executed on a real device is
+printed as UNVERIFIED without failing the target; CI turns that into a warning.
 
 ## Releases
 
@@ -375,7 +380,8 @@ scrape_configs:
 
 Two things differ between devices, and both fail quietly.
 
-**The instruction set.** `scripts/isa-audit.sh` grades a binary against a list
+**The instruction set.** `isa-allowlist` (in the toolchain image, from
+odi-toolchain) grades a binary against a list
 of mnemonics confirmed present on the RLX5281 *by executing them*, and reports
 everything else as UNVERIFIED. That list is not transferable: another RTL960x
 core may implement more or fewer. Do not assume an ISA level — on this one,
@@ -407,10 +413,10 @@ src/metrics_body.h    the metrics themselves; every metric name lives here
 src/syscall.h         o32 syscall layer, file reads, fork/exec, decimals
 src/start.S           _start and a 6-argument syscall stub for setsockopt
 scripts/verify.sh     asserts ELF32 / big endian / MIPS / static / no INTERP
-scripts/isa-audit.sh  instruction census against what the RLX5281 implements
+scripts/toolchain-image.sh  prints (and pulls) the pinned toolchain image
 scripts/deploy.sh     push a file to the stick over netcat
 stick/exporter-up.sh  on-device start/stop
-Dockerfile            the cross toolchain: gcc-mips-linux-gnu + qemu-user
+toolchain.env         the toolchain image, pinned by digest (odi-toolchain)
 Makefile              every target above; re-enters itself with IN_CONTAINER=1
 .github/workflows/release.yml   build + gate on every push, publish on v* tags
 ```
