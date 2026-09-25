@@ -1,4 +1,4 @@
-# sfp-exporter — Prometheus exporter for RTL9601-based GPON SFP ONU sticks.
+# odi-sfp-exporter — Prometheus exporter for RTL9601-based GPON SFP ONU sticks.
 #
 # Host targets shell out to the toolchain container; the C build re-enters
 # this Makefile there with IN_CONTAINER=1.

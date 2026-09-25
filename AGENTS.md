@@ -6,7 +6,7 @@ the way it is; this file is about how to work in it safely and correctly.
 
 ## What this is, and how it fits with the firmware image
 
-`sfp-exporter` builds `metricsd`, a Prometheus exporter that runs **on** an
+`odi-sfp-exporter` builds `metricsd`, a Prometheus exporter that runs **on** an
 RTL9601-based GPON SFP ONU stick and serves optics and forwarding metrics on
 its own HTTP port. It is a standalone, freestanding binary with no
 dependencies of its own.

@@ -75,7 +75,7 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: sfp-exporter-${{ github.sha }}
+          name: odi-sfp-exporter-${{ github.sha }}
           path: |
             build/metricsd
             build/SHA256SUMS

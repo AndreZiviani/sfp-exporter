@@ -1,6 +1,6 @@
-# sfp-exporter
+# odi-sfp-exporter
 
-[![build](https://github.com/AndreZiviani/sfp-exporter/actions/workflows/release.yml/badge.svg)](https://github.com/AndreZiviani/sfp-exporter/actions/workflows/release.yml)
+[![build](https://github.com/AndreZiviani/odi-sfp-exporter/actions/workflows/release.yml/badge.svg)](https://github.com/AndreZiviani/odi-sfp-exporter/actions/workflows/release.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A Prometheus exporter that runs **on** an RTL9601-based GPON SFP ONU stick,
@@ -224,8 +224,8 @@ Every tagged release carries prebuilt static binaries, so you do not need a
 toolchain to use this:
 
 ```sh
-curl -fsSLO https://github.com/AndreZiviani/sfp-exporter/releases/latest/download/metricsd
-curl -fsSLO https://github.com/AndreZiviani/sfp-exporter/releases/latest/download/SHA256SUMS
+curl -fsSLO https://github.com/AndreZiviani/odi-sfp-exporter/releases/latest/download/metricsd
+curl -fsSLO https://github.com/AndreZiviani/odi-sfp-exporter/releases/latest/download/SHA256SUMS
 sha256sum -c --ignore-missing SHA256SUMS
 ```
 
