@@ -1,9 +1,14 @@
 # sfp-exporter — Prometheus exporter for RTL9601-based GPON SFP ONU sticks.
 #
-# Host targets shell out to containers holding each toolchain; the C build
-# re-enters this Makefile there with IN_CONTAINER=1.
-
-IMAGE   := sfp-exporter-toolchain
+# Host targets shell out to the toolchain container; the C build re-enters
+# this Makefile there with IN_CONTAINER=1.
+#
+# The container is the freestanding toolchain image from odi-toolchain,
+# pinned by digest in toolchain.env and pulled on first use;
+# TOOLCHAIN_IMAGE overrides it (scripts/toolchain-image.sh, docs/BUILDING.md).
+include toolchain.env
+TOOLCHAIN_IMAGE ?= $(TOOLCHAIN_IMAGE_PINNED)
+IMAGE   := $(TOOLCHAIN_IMAGE)
 BUILD   := build
 
 # Stick connection, for `make deploy` / `make pull`. IP is deliberately unset so
@@ -91,7 +96,7 @@ RUN   := docker run --rm -v "$(CURDIR)":/src -w /src $(IMAGE)
 all: httpd verify isa
 
 image:
-	docker build -q -t $(IMAGE) .
+	@TOOLCHAIN_IMAGE='$(IMAGE)' scripts/toolchain-image.sh >/dev/null
 
 ## --- targets -----------------------------------------------------------------
 
@@ -105,9 +110,16 @@ httpd: image
 verify: image
 	$(RUN) scripts/verify.sh $(BIN)
 
-# Instruction census against what the RLX5281 is known to implement.
+# The ISA gate, shared with the other RLX5281 projects and installed in the
+# toolchain image: isa-audit refuses an instruction known to trap (or any
+# floating point); isa-allowlist reports any mnemonic never executed on the
+# hardware. A trap fails the target. An unverified mnemonic (isa-allowlist
+# exit 2) is printed as UNVERIFIED and does not, since the fix is to execute
+# it on a device and extend the list in odi-toolchain -- CI turns that line
+# into a warning.
 isa: image
-	$(RUN) scripts/isa-audit.sh $(BIN)
+	$(RUN) isa-audit $(BIN)
+	@$(RUN) isa-allowlist $(BIN); rc=$$?; [ $$rc = 0 ] || [ $$rc = 2 ]
 
 # Run a built binary under qemu-user. Proves logic and syscalls; does NOT prove
 # instruction legality — qemu emulates full MIPS32 and will happily execute the
