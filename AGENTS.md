@@ -6,7 +6,7 @@ the way it is; this file is about how to work in it safely and correctly.
 
 ## What this is, and how it fits with the firmware image
 
-`sfp-exporter` builds `metricsd`, a Prometheus exporter that runs **on** an
+`odi-sfp-exporter` builds `metricsd`, a Prometheus exporter that runs **on** an
 RTL9601-based GPON SFP ONU stick and serves optics and forwarding metrics on
 its own HTTP port. It is a standalone, freestanding binary with no
 dependencies of its own.
@@ -25,16 +25,17 @@ it lives in that other project, not here.
     src/syscall.h         o32 syscall layer, file reads, fork/exec, decimals
     src/start.S           _start and a 6-argument syscall stub for setsockopt
     scripts/verify.sh     asserts ELF32 / big endian / MIPS / static / no INTERP
-    scripts/isa-audit.sh  instruction census against what the RLX5281 implements
+    scripts/toolchain-image.sh  prints (and pulls) the pinned toolchain image
     scripts/deploy.sh     push a file to the stick over netcat
     stick/exporter-up.sh  on-device start/stop
-    Dockerfile            the cross toolchain: gcc-mips-linux-gnu + qemu-user
+    toolchain.env         the toolchain image (odi-toolchain freestanding), pinned by digest
+    docs/BUILDING.md      the toolchain image: pulling, logging in, building it locally
     Makefile               every target below; re-enters itself with IN_CONTAINER=1
     .github/workflows/release.yml   build + gate on every push, publish on v* tags
 
 ## Build and test commands
 
-    make image      # build the toolchain container (once, or after Dockerfile changes)
+    make image      # pull the pinned toolchain image (once; docs/BUILDING.md)
     make httpd      # build build/metricsd (what CI runs)
     make verify      # ELF shape: ELF32, big-endian MIPS, static, no INTERP
     make isa         # instruction census against the RLX5281's confirmed ISA
@@ -81,10 +82,13 @@ every tag describe as `unknown`; CI always fetches full history.
   - **Go and TinyGo cannot target this core**, and no compiler flag fixes
     it: the runtime library sets the ISA floor, not the compiler's code
     generation flag. Do not propose porting this to Go.
-  - `scripts/isa-audit.sh` is the actual gate, run by `make isa` and by CI:
-    it disassembles the binary and fails (exit 1) if any confirmed-illegal
-    mnemonic appears, and warns (exit 2, not a build failure) on anything
-    unverified. Run it, do not just trust `-march`.
+  - `isa-audit` and `isa-allowlist`, shared with the other RLX5281 projects
+    and installed in the toolchain image (odi-toolchain), are the actual
+    gate, run by `make isa` and by CI: the binary fails if any
+    confirmed-illegal mnemonic or floating point appears, and anything
+    unverified is printed as UNVERIFIED (a CI warning, not a build failure).
+    Run it, do not just trust `-march`. The allowlist grows in odi-toolchain,
+    and only by executing an instruction on a device.
   - `scripts/verify.sh` checks the ELF shape a dynamic or non-static binary
     would fail on the device: ELF32, big-endian, MIPS, no `PT_INTERP`, no
     `NEEDED` shared libraries.
