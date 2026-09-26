@@ -1,8 +1,9 @@
 # AGENTS.md
 
 Guidance for any coding agent (or human) working in this repository. Read
-the top-level `README.md` first for what this project is and why it is built
-the way it is; this file is about how to work in it safely and correctly.
+the top-level `README.md` first for what this project is, then
+`docs/DESIGN.md` for why it is built the way it is; this file is about how to
+work in it safely and correctly.
 
 ## What this is, and how it fits with the firmware image
 
@@ -11,12 +12,13 @@ RTL9601-based GPON SFP ONU stick and serves optics and forwarding metrics on
 its own HTTP port. It is a standalone, freestanding binary with no
 dependencies of its own.
 
-It does not build a flashable firmware image. A separate, private firmware
-project consumes this repo's **releases** (the `metricsd` binary plus
-`SHA256SUMS`, verified before use) rather than its source, and bakes them
-into a custom image alongside the stock vendor firmware and a config UI. If
-you are looking for image-building, flashing, or device-provisioning logic,
-it lives in that other project, not here.
+It does not build a flashable firmware image. It is part of the
+[odi-oss](https://github.com/AndreZiviani/odi-oss) project, which consumes
+this repo's **releases** (the `metricsd` binary plus `SHA256SUMS`, verified
+before use) rather than its source, and bakes them into a custom image
+alongside the stock vendor firmware and a config UI. If you are looking for
+image-building, flashing, or device-provisioning logic, it lives in that
+other repo, not here.
 
 ## Layout
 
@@ -29,7 +31,9 @@ it lives in that other project, not here.
     scripts/deploy.sh     push a file to the stick over netcat
     stick/exporter-up.sh  on-device start/stop
     toolchain.env         the toolchain image (odi-toolchain freestanding), pinned by digest
-    docs/BUILDING.md      the toolchain image: pulling, logging in, building it locally
+    docs/BUILDING.md      the toolchain image: pulling, building it locally, release targets
+    docs/DESIGN.md        why it is built this way, implementation notes, install, porting
+    docs/METRICS.md       full metric reference and caveats
     Makefile               every target below; re-enters itself with IN_CONTAINER=1
     .github/workflows/release.yml   build + gate on every push, publish on v* tags
 
@@ -103,8 +107,8 @@ every tag describe as `unknown`; CI always fetches full history.
   shell word and runs the rest of the line in the outer shell. Rephrase;
   do not escape.
 - Values read from `diag` are emitted as the literal text it printed, never
-  parsed to a number and back -- see "Implementation notes" in the README
-  before changing anything in the metric-formatting path.
+  parsed to a number and back -- see "Implementation notes" in
+  `docs/DESIGN.md` before changing anything in the metric-formatting path.
 
 ## Testing on a stick safely
 

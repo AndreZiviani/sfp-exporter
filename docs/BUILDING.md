@@ -16,15 +16,11 @@ names it -- and `make image` (a dependency of every target that needs it)
 pulls it on first use through `scripts/toolchain-image.sh`. It is published
 for `linux/amd64` and `linux/arm64`.
 
-Once the package is public, no login is needed: the pull is anonymous.
+The package is public, so no login or token is needed: `make image` pulls it
+anonymously. A GitHub token is only useful as an optional way to raise
+anonymous-pull rate limits; it is never required.
 
-**While it is private**, log in once with a GitHub token that has
-`read:packages`, and keep the token out of the repository and out of shared
-shell histories:
-
-    echo "$TOKEN" | docker login ghcr.io -u <github user> --password-stdin
-
-A failed pull says this and prints the fallback below.
+A failed pull prints the fallback below.
 
 ## Building the image locally instead
 
@@ -45,9 +41,39 @@ difference needs a reason before the change merges.
 
 ## CI
 
-`.github/workflows/release.yml` logs in to ghcr.io with the workflow
-`GITHUB_TOKEN` and pulls the pinned image. While the package is private,
-that works only once the package grants this repository read access (on
-GitHub: the package settings, "Manage Actions access", add this repository
-with the Read role). Once the package is public the login step is
-unnecessary and harmless.
+`.github/workflows/release.yml` pulls the pinned image anonymously — no
+login step. Every push and PR builds and gates the binary (`make httpd`,
+`make verify`, `make isa`, `make sums`), so a tag can never fail on something
+an ordinary commit would have caught.
+
+## Targets
+
+    make            # build, verify and audit — the usual case
+    make httpd      # the exporter -> build/metricsd
+    make verify     # assert the ELF shape the stick can actually load
+    make isa        # the ISA gate: isa-audit and isa-allowlist, from the toolchain image
+    make run        # execute locally under qemu-user
+    make release    # everything CI does, including SHA256SUMS
+    make shell      # a shell in the toolchain container
+    make clean
+
+`make run` uses qemu-user. It proves logic and syscalls but **not instruction
+legality** — qemu emulates a full MIPS32 CPU and will happily execute the `mul`
+and `clz` that trap on real hardware. `make isa` is the gate for that.
+
+`make isa` fails when the binary contains an instruction known to trap, or any
+floating point. A mnemonic that has never been executed on a real device is
+printed as UNVERIFIED without failing the target; CI turns that into a warning.
+
+## Releases
+
+Tagging is the whole process:
+
+    git tag -a v1.0.0 -m "first release"
+    git push origin v1.0.0
+
+`.github/workflows/release.yml` builds in the same container this repo uses
+locally, runs `verify` and the ISA audit, and publishes the binaries with
+generated release notes. Every push and pull request runs the identical build
+and gates, so a tag cannot fail on something an ordinary commit would have
+caught. Run `make release` first if you want the same answer without pushing.
