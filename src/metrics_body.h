@@ -8,7 +8,7 @@
  *
  * The optical values are not in /proc — `ls /proc` turns up only rtk_smux — so
  * they come from /bin/diag, run once per scrape and scraped back out of its
- * output. See README.md for the command list and how it was established.
+ * output. See docs/METRICS.md for the command list and how it was established.
  */
 
 #ifndef ODI_METRICS_BODY_H
