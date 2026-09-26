@@ -75,9 +75,10 @@ From `/bin/diag`, **all in a single fork per scrape**:
 the only counters that show whether the stick is actually *forwarding*, so they
 are the ones to alert on. Established by correlating deltas over one window on
 each of two lines independently, rather than assumed from the port numbers: on
-Claro, `p2` received 13220591 octets while `p0` transmitted 13203165, and `p0`
-received 12626164 while `p2` transmitted 12653844; on Vero, 9204264 / 9184671
-and 880819 / 898523. The mirror is the switch forwarding between the two.
+one line, `p2` received 13220591 octets while `p0` transmitted 13203165, and
+`p0` received 12626164 while `p2` transmitted 12653844; on the other, 9204264 /
+9184671 and 880819 / 898523. The mirror is the switch forwarding between the
+two.
 
 These are the same counters the vendor web UI shows (boa's `ponGetStatus`,
 which prints them with `%llu`). Reading is **non-destructive** —
@@ -98,9 +99,9 @@ T=11787.66  p0out= 27505987  IntEndTime=13
 ```
 
 ME24 `EthPmHistoryData` has an instance and monitors the **UNI**, which is port
-0. ME321/322 — the PON-side Ethernet frame PM MEs — have no instances on either
-of our lines, which is exactly why port 2 is spared: over 30 consecutive reads
-across 5 minutes, and every read taken since, it only ever grew.
+0. ME321/322 — the PON-side Ethernet frame PM MEs — have no instances on
+either line tested, which is exactly why port 2 is spared: over 30 consecutive
+reads across 5 minutes, and every read taken since, it only ever grew.
 
 This does not change the metric type. `counter` is right precisely because
 Prometheus detects a counter reset and handles it; the cost is one interval's
